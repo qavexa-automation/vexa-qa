@@ -4,7 +4,8 @@ import type { User } from "@supabase/supabase-js";
 import { emptyWorkspace, parseWorkspace, type Workspace } from "./model";
 import { removeUntouchedDemoData } from "./seed";
 import { supabase } from "./supabase";
-import { CloudWorkspace, type CloudSnapshot } from "./cloud-workspace";
+import { CloudWorkspace } from "./cloud-workspace";
+import { relationalBackend } from "./relational-workspace";
 
 const STORAGE_KEY = "vexa-qa-demo-v1";
 export const LOCAL_WORKSPACE_BACKUP_KEY = `${STORAGE_KEY}-before-sample-cleanup`;
@@ -54,7 +55,7 @@ export function useWorkspace() {
             .eq("member_id", nextUser.id);
           if (membership.error)
             throw new Error(
-              `${membership.error.message}. Run the 002_shared_realtime.sql migration to enable team workspaces.`,
+              `${membership.error.message}. Run the relational workspace migration in supabase/migrations.`,
             );
           if (epoch.current !== currentEpoch) return;
           const shared = (membership.data ?? []).map((m) => ({
@@ -66,43 +67,13 @@ export function useWorkspace() {
           const workspaceOwner =
             savedOwner && shared.some((m) => m.owner === savedOwner) ? savedOwner : nextUser.id;
           setOwner(workspaceOwner);
-          const read = async (): Promise<CloudSnapshot> => {
-            const result = await client
-              .from("qa_workspaces")
-              .select("data, revision")
-              .eq("user_id", workspaceOwner)
-              .maybeSingle();
-            if (result.error)
-              throw Object.assign(new Error(result.error.message), {
-                retryable: result.status === 0 || result.status >= 500,
-              });
-            if (!result.data && workspaceOwner !== nextUser.id)
-              throw new Error("This shared workspace is unavailable or your access was removed.");
-            const parsed = result.data ? parseWorkspace(result.data.data) : emptyWorkspace();
-            if (!parsed)
-              throw new Error(
-                "The saved workspace has an unsupported format. Export a backup before making changes.",
-              );
-            return { workspace: parsed, revision: Number(result.data?.revision ?? 0) };
-          };
-          const snapshot = await read();
+          const backend = relationalBackend(client, workspaceOwner, nextUser.id);
+          const snapshot = await backend.read();
           if (epoch.current !== currentEpoch) return;
           data = snapshot.workspace;
           cloud.current = new CloudWorkspace(
             snapshot,
-            {
-              read,
-              save: async (payload, revision) => {
-                const result = await client.rpc("save_qa_workspace", {
-                  payload,
-                  expected_revision: revision,
-                  workspace_owner: workspaceOwner,
-                });
-                if (result.error)
-                  throw Object.assign(new Error(result.error.message), { code: result.error.code });
-                return Number(result.data);
-              },
-            },
+            backend,
             (updated, pending) => {
               display(updated);
               setSync(pending ? "Saving to cloud…" : "Cloud synced");

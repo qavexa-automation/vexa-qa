@@ -9,3 +9,4 @@ coverage/
 *.log
 .qa/
 .npm-cache/
+supabase/.temp/

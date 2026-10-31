@@ -1,6 +1,6 @@
 import { updateProjects, type Workspace } from "./model";
 
-// PostgreSQL JSONB can reorder object keys, which must not count as a data change.
+// API object key order must not count as a data change.
 function equal(a: unknown, b: unknown): boolean {
   if (a === b) return true;
   if (Array.isArray(a) && Array.isArray(b))

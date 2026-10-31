@@ -38,7 +38,7 @@ XP is derived from quests currently marked Done. Reopening or deleting a complet
 ## Set up Supabase
 
 1. Create a project at [Supabase](https://supabase.com/dashboard).
-2. Open **SQL Editor** and run `supabase/migrations/001_workspace.sql`, then `supabase/migrations/002_shared_realtime.sql`, each once and in that order. The second migration adds team membership, invitations, protected saves, and the Supabase Realtime publication. If you already ran 001, run only 002. Existing data stays in its current owner's workspace.
+2. On a fresh database, open **SQL Editor** and run [`supabase/migrations/20261031143252_relational_workspace.sql`](supabase/migrations/20261031143252_relational_workspace.sql), followed by [`20261031143409_harden_rls_auto_enable.sql`](supabase/migrations/20261031143409_harden_rls_auto_enable.sql), once each. The baseline creates ten relational tables, access policies, transactional save/read functions, team invitations, and the Realtime publication. The second migration restricts client access to Supabase's optional privileged RLS setup helper. The old JSON migrations have been removed. If you already applied them, this baseline will stop on existing tables; it does not erase or convert an existing database. See [the database guide](supabase/README.md) before changing an existing installation.
 3. Under Authentication, enable the Email provider. Configure confirmation email delivery for production. Set the Site URL to your Vercel domain and allow your local URL for development. This app uses browser-side auth; there is no server-rendered protected content or server-side cookie session.
 4. Copy `.env.example` to `.env.local`:
 
@@ -64,7 +64,7 @@ The app subscribes to authorized workspace changes through [Supabase Postgres Ch
 
 ### Persistence and access model
 
-Each account owns one JSON workspace (up to 2 MB) and can join other owners' workspaces. Workspaces remain private until their owner shares an invite code. Row-level security permits reading only owned or joined workspaces; all cloud writes use a revision-checked function that checks membership. Members can edit all workspace records, but only the owner can manage invite codes and remove members.
+Each account owns one workspace and can join other owners' workspaces. Projects, quests, labels, test cases, modifications, deployments, and activity are stored as typed rows in separate relational tables; there are no JSON/JSONB columns in the application schema. Foreign keys prevent links between different workspaces, and database constraints validate statuses, dates, XP, and test execution state. Workspaces remain private until their owner shares an invite code. Row-level security permits reading only owned or joined workspaces. All cloud content writes use a revision-checked transaction that checks membership and rolls back the entire save on failure. Members can edit all workspace records, but only the owner can manage invite codes and remove members. JSON is only the RPC request/response format and the downloadable backup format. See [the schema and access model](supabase/README.md).
 
 Cloud saves compare revision numbers and retry competing saves after fetching the latest data. Independent changes, including different fields of the same record, merge automatically. Competing changes to the same field or deleting a record another user edited produce an explicit conflict. Unsaved data remains visible for JSON export; export it before reloading to review the saved version. Save failures also preserve the visible workspace. Data is debounced briefly before cloud saves; wait for **Cloud synced** before closing the tab. Local workspaces save in this browser on each edit. Local storage is specific to a browser profile and origin; another browser, hostname, or port has separate records.
 
@@ -80,7 +80,7 @@ Using two distinct test accounts:
 4. Account A creates an invite code. Account B joins with it. Verify A's existing records appear for B. Change a test result in B and a quest status in A; verify both update in the other browser without reloading.
 5. Make independent changes before both browsers finish saving. Verify both survive. Change the same field to different values before saving; verify the losing save reports a conflict and retains its unsaved data for export.
 6. Switch B back to My workspace and verify its separate data remains. Remove B from A's member list and disable A's invite code. B must lose read/write access; after the next refresh/check its shared workspace reports an access error. Previously displayed/exported data cannot be recalled.
-7. Verify that unauthenticated requests cannot read/write any of the three `qa_*` tables or call the sharing/save functions. An unrelated signed-in account must not read or save A's data, enumerate invite codes, or insert its own membership. Direct workspace insert/update requests must be denied, even for owners; saves must go through the RPC.
+7. Verify that unauthenticated requests cannot read/write any of the ten `qa_*` tables or call the read/sharing/save functions. An unrelated signed-in account must not read or save A's data, enumerate invite codes, or insert its own membership. Direct content-table writes must be denied, even for owners; saves must go through the RPC.
 8. Disconnect and reconnect a browser's network. Reconnecting the live subscription must fetch changes made while it was disconnected. A failed save must retain the user's data and show an export/reload error.
 
 These checks require your provisioned Supabase project. Local mode does not verify database policies or email delivery.
@@ -120,7 +120,7 @@ npm.cmd test
 npm.cmd run build
 ```
 
-The tests cover XP accounting, test results, stored-data validation, three-way collaboration merges, concurrent save retries, in-flight edits, conflicts, stale-session cleanup, and access errors. The cloud sync tests use an in-memory backend; the two-account checks above are still required against your provisioned Supabase project to verify database policies, invitations, websocket delivery, and authentication.
+The tests cover XP accounting, test results, stored-data validation, three-way collaboration merges, concurrent save retries, in-flight edits, conflicts, stale-session cleanup, and access errors. Database tests execute the actual migration and queries in PGlite (embedded PostgreSQL), with mocked Supabase auth claims and real database roles/RLS. They verify relational round trips, foreign keys, constraints, rollback, revisions, invitations, and access revocation. The two-account checks above are still required against your provisioned Supabase project to verify real authentication, Data API exposure, email delivery, and websocket delivery.
 
 ## Project structure
 
@@ -132,6 +132,7 @@ src/lib/seed.ts            Recognizes legacy samples for safe local cleanup
 src/lib/dashboard.ts       Dashboard totals and saved developer contributions
 src/lib/use-workspace.ts   Browser persistence, authentication, cloud saves
 src/lib/cloud-workspace.ts Serialized cloud reads/writes and conflict retries
+src/lib/relational-workspace.ts Relational RPC adapter and response validation
 src/lib/workspace-merge.ts Three-way merge of concurrent changes
 src/components/workspace-sharing.tsx Team invites, membership, workspace selection
 src/lib/supabase.ts        Optional browser Supabase client
