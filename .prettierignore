@@ -1,0 +1,6 @@
+.next
+node_modules
+.npm-cache
+.qa
+package-lock.json
+next-env.d.ts
