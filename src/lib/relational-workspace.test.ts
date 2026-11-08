@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { PGlite } from "@electric-sql/pglite";
 import { createClient } from "@supabase/supabase-js";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { emptyWorkspace, type Workspace } from "./model";
+import { emptyWorkspace, PROJECT_STATUSES, type Workspace } from "./model";
 import { parseCloudSnapshot, relationalBackend, workspaceForSave } from "./relational-workspace";
 
 const A = "10000000-0000-4000-8000-000000000001";
@@ -16,11 +16,41 @@ const hardeningMigration = readFileSync(
   new URL("../../supabase/migrations/20261031143409_harden_rls_auto_enable.sql", import.meta.url),
   "utf8",
 );
+const modificationDatesMigration = readFileSync(
+  new URL(
+    "../../supabase/migrations/20261101045702_modification_listing_dates.sql",
+    import.meta.url,
+  ),
+  "utf8",
+);
+const completedStatusMigration = readFileSync(
+  new URL("../../supabase/migrations/20261101070000_rename_done_to_completed.sql", import.meta.url),
+  "utf8",
+);
+const editableDatesMigration = readFileSync(
+  new URL(
+    "../../supabase/migrations/20261101063000_editable_modification_dates.sql",
+    import.meta.url,
+  ),
+  "utf8",
+);
+const activityCalendarMigration = readFileSync(
+  new URL("../../supabase/migrations/20261107145451_activity_calendar.sql", import.meta.url),
+  "utf8",
+);
+const attachmentsMigration = readFileSync(
+  new URL("../../supabase/migrations/20261108090000_modification_attachments.sql", import.meta.url),
+  "utf8",
+);
+const projectStatusMigration = readFileSync(
+  new URL("../../supabase/migrations/20261108100247_project_status.sql", import.meta.url),
+  "utf8",
+);
 
 function fixture(): Workspace {
   return {
     ...emptyWorkspace(),
-    projects: [{ id: "project-1", name: "Portal", department: "IT / QA", developer: "Ana" }],
+    projects: [{ id: "project-1", name: "Portal", department: "IT / QA", developer: "Ana", status: "Not Started" }],
     issues: [
       {
         id: "VXA-001",
@@ -59,6 +89,19 @@ function fixture(): Workspace {
         status: "In progress",
         developer: "Ana",
         notes: "",
+        attachments: [
+          {
+            id: "file-1",
+            name: "login-error.png",
+            storedName: "login-error.webp",
+            contentType: "image/webp",
+            size: 482000,
+            storedSize: 61240,
+            encoding: "webp",
+            path: `${A}/change-1/file-1`,
+            uploadedAt: "2026-11-08T02:30:00.000Z",
+          },
+        ],
       },
     ],
     deployments: [
@@ -75,6 +118,36 @@ function fixture(): Workspace {
     ],
     activity: [
       { id: "event-1", text: "Created quest", date: "2026-10-31T01:02:03.004Z", kind: "issue" },
+    ],
+    calendarEvents: [
+      {
+        id: "activity-1",
+        title: "Sprint planning",
+        kind: "Meeting",
+        status: "Scheduled",
+        startDate: "2026-11-02",
+        endDate: "2026-11-02",
+        allDay: false,
+        startTime: "09:00",
+        endTime: "10:30",
+        projectId: "project-1",
+        location: "Teams",
+        notes: "Review the backlog",
+      },
+      {
+        id: "activity-2",
+        title: "Regression window",
+        kind: "Testing",
+        status: "Completed",
+        startDate: "2026-11-05",
+        endDate: "2026-11-07",
+        allDay: true,
+        startTime: "",
+        endTime: "",
+        projectId: "",
+        location: "",
+        notes: "",
+      },
     ],
   };
 }
@@ -99,12 +172,36 @@ describe("relational workspace database", () => {
     `);
     await db.exec(migration);
     await db.exec(hardeningMigration);
+    await db.exec(modificationDatesMigration);
+    await db.exec(editableDatesMigration);
+    await db.exec(completedStatusMigration);
+    await db.exec(activityCalendarMigration);
+    // Model the managed Storage tables so the real migration's bucket/policy branch runs too.
+    await db.exec(`
+      create schema storage;
+      create table storage.buckets (
+        id text primary key, name text not null, public boolean not null default false,
+        file_size_limit bigint
+      );
+      create table storage.objects (
+        bucket_id text not null references storage.buckets(id), name text not null,
+        primary key (bucket_id, name)
+      );
+      create function storage.foldername(name text) returns text[] language sql immutable as $$
+        select (string_to_array(name, '/'))[1:array_length(string_to_array(name, '/'), 1) - 1];
+      $$;
+      alter table storage.objects enable row level security;
+      grant usage on schema storage to anon, authenticated;
+      grant select, insert, delete on storage.objects to authenticated;
+    `);
+    await db.exec(attachmentsMigration);
+    await db.exec(projectStatusMigration);
   }, 30000);
   afterAll(async () => {
     await db?.close();
   });
   beforeEach(async () => {
-    await db.exec("reset role; truncate public.qa_workspaces cascade;");
+    await db.exec("reset role; truncate storage.objects; truncate public.qa_workspaces cascade;");
   });
 
   async function as<T>(id: string | null, action: () => Promise<T>, role = "authenticated") {
@@ -148,6 +245,77 @@ describe("relational workspace database", () => {
     return as(id, () => db.query("select public.join_qa_workspace($1::uuid)", [code]));
   }
 
+  it("round-trips every project status through revision-checked saves", async () => {
+    const workspace = fixture();
+    let revision = 0;
+    for (const status of PROJECT_STATUSES) {
+      workspace.projects![0].status = status;
+      revision = await save(A, workspace, revision);
+      expect(parseCloudSnapshot(await read(A), true).workspace.projects![0].status).toBe(status);
+    }
+  });
+
+  it("defaults old projects and preserves status when an older client omits it", async () => {
+    const workspace = fixture();
+    delete workspace.projects![0].status;
+    expect(workspaceForSave(workspace).projects[0].status).toBe("Not Started");
+    await save(A, workspace);
+    expect(parseCloudSnapshot(await read(A), true).workspace.projects![0].status).toBe("Not Started");
+    workspace.projects![0].status = "In Development";
+    await save(A, workspace, 1);
+    const payload = workspaceForSave(workspace);
+    const { status: _status, ...legacyProject } = payload.projects[0];
+    await as(A, () => db.query("select public.save_qa_workspace($1::jsonb, 2, $2::uuid)", [
+      JSON.stringify({ ...payload, projects: [{ ...legacyProject, name: "Renamed" }] }), A,
+    ]));
+    expect(parseCloudSnapshot(await read(A), true).workspace.projects![0]).toMatchObject({
+      name: "Renamed", status: "In Development",
+    });
+  });
+
+  it("rejects invalid project statuses and rolls back the entire save", async () => {
+    await save(A);
+    for (const status of ["Invalid", null, 123]) {
+      const payload = workspaceForSave(fixture());
+      await expect(as(A, () => db.query("select public.save_qa_workspace($1::jsonb, 1, $2::uuid)", [
+        JSON.stringify({ ...payload, projects: [{ ...payload.projects[0], name: "Must roll back", status }] }), A,
+      ]))).rejects.toBeTruthy();
+      const saved = parseCloudSnapshot(await read(A), true);
+      expect(saved.revision).toBe(1);
+      expect(saved.workspace.projects![0]).toMatchObject({ name: "Portal", status: "Not Started" });
+    }
+  });
+
+  it("provisions the private attachment bucket and all three Storage policies", async () => {
+    expect((await db.query("select * from storage.buckets where id = 'modification-attachments'")).rows).toEqual([
+      { id: "modification-attachments", name: "modification-attachments", public: false, file_size_limit: 10485760 },
+    ]);
+    const policies = await db.query<{ cmd: string }>(
+      "select cmd from pg_policies where schemaname = 'storage' and tablename = 'objects' order by cmd",
+    );
+    expect(policies.rows.map((policy) => policy.cmd)).toEqual(["DELETE", "INSERT", "SELECT"]);
+  });
+
+  it("permits owners and members to attach files while isolating unrelated workspaces", async () => {
+    await save(A);
+    const insert = (user: string, path: string) => as(user, () => db.query(
+      "insert into storage.objects(bucket_id, name) values ('modification-attachments', $1)", [path],
+    ));
+    const ownerPath = `${A}/change-1/owner-file`;
+    await insert(A, ownerPath);
+    await expect(insert(B, `${A}/change-1/forbidden`)).rejects.toMatchObject({ code: "42501" });
+    expect((await as(B, () => db.query("select * from storage.objects"))).rows).toEqual([]);
+    await expect(as(null, () => db.query("select * from storage.objects"), "anon")).rejects.toMatchObject({ code: "42501" });
+
+    await join(B, await invite());
+    const memberPath = `${A}/change-1/member-file`;
+    await insert(B, memberPath);
+    expect((await as(B, () => db.query("select name from storage.objects order by name"))).rows).toHaveLength(2);
+    await expect(insert(B, `${C}/change-1/forbidden`)).rejects.toMatchObject({ code: "42501" });
+    expect((await as(C, () => db.query("delete from storage.objects returning name"))).rows).toEqual([]);
+    expect((await as(B, () => db.query("delete from storage.objects returning name"))).rows).toHaveLength(2);
+  });
+
   it("has no JSON columns, enables RLS everywhere, and keeps definer code private", async () => {
     const jsonColumns =
       await db.query(`select table_name, column_name from information_schema.columns
@@ -156,7 +324,7 @@ describe("relational workspace database", () => {
     const tables = await db.query<{ relname: string; relrowsecurity: boolean }>(
       "select relname, relrowsecurity from pg_class where relnamespace = 'public'::regnamespace and relkind = 'r'",
     );
-    expect(tables.rows).toHaveLength(10);
+    expect(tables.rows).toHaveLength(12);
     expect(tables.rows.every((t) => t.relrowsecurity)).toBe(true);
     expect(
       (
@@ -201,7 +369,7 @@ describe("relational workspace database", () => {
     });
     expect(await read(A)).toBeNull();
     expect(await save(A, workspace)).toBe(1);
-    expect(parseCloudSnapshot(await read(A), true)).toEqual({ workspace, revision: 1 });
+    expect(parseCloudSnapshot(await read(A), true)).toMatchObject({ workspace, revision: 1 });
     expect(
       (await db.query("select label from public.qa_issue_labels order by display_order")).rows,
     ).toEqual([{ label: "login" }, { label: "regression" }]);
@@ -211,7 +379,127 @@ describe("relational workspace database", () => {
       lastRun: "2026-10-31T01:05:00.000Z",
     };
     expect(await save(A, workspace, 1)).toBe(2);
-    expect(parseCloudSnapshot(await read(A), true)).toEqual({ workspace, revision: 2 });
+    expect(parseCloudSnapshot(await read(A), true)).toMatchObject({ workspace, revision: 2 });
+  });
+
+  it("stores Completed and rejects the former Done status", async () => {
+    const workspace = fixture();
+    workspace.issues[0].status = "Completed";
+    workspace.modifications![0].status = "Completed";
+    await save(A, workspace);
+    const saved = parseCloudSnapshot(await read(A), true).workspace;
+    expect(saved.issues[0].status).toBe("Completed");
+    expect(saved.modifications![0].status).toBe("Completed");
+    const legacy = structuredClone(workspace) as unknown as { issues: { status: string }[] };
+    legacy.issues[0].status = "Done";
+    await expect(save(A, legacy as unknown as Workspace, 1)).rejects.toThrow(
+      /qa_issues_status_check/,
+    );
+  });
+
+  it("stores the dates people enter, leaves missing ones empty, and keeps them ordered", async () => {
+    const workspace = fixture();
+    await save(A, workspace);
+    const empty = parseCloudSnapshot(await read(A), true).workspace.modifications![0];
+    expect(empty.requestedAt).toBeUndefined();
+    expect(empty.modifiedAt).toBeUndefined();
+    workspace.modifications![0] = {
+      ...workspace.modifications![0],
+      requestedAt: "2026-10-28",
+      modifiedAt: "2026-11-01",
+    };
+    await save(A, workspace, 1);
+    expect(parseCloudSnapshot(await read(A), true).workspace.modifications![0]).toMatchObject({
+      requestedAt: "2026-10-28",
+      modifiedAt: "2026-11-01",
+    });
+    workspace.modifications![0].modifiedAt = "2026-10-27";
+    await expect(save(A, workspace, 2)).rejects.toThrow(/qa_modifications_dates_ordered/);
+    expect(parseCloudSnapshot(await read(A), true)).toMatchObject({ revision: 2 });
+  });
+
+  it("stores calendar activities as Manila dates and times, and enforces their ranges", async () => {
+    const workspace = fixture();
+    await save(A, workspace);
+    const saved = parseCloudSnapshot(await read(A), true).workspace.calendarEvents!;
+    // Wall-clock times are stored as typed, never shifted into or out of an instant.
+    expect(saved[0]).toMatchObject({ startTime: "09:00", endTime: "10:30", allDay: false });
+    // An all-day activity keeps empty time strings rather than dropping the fields.
+    expect(saved[1]).toMatchObject({ allDay: true, startTime: "", endTime: "", projectId: "" });
+    expect(
+      (
+        await db.query<{ start_time: unknown }>(
+          "select start_time from public.qa_calendar_events where id = 'activity-2'",
+        )
+      ).rows[0].start_time,
+    ).toBeNull();
+    // Deleting one activity leaves the other untouched.
+    workspace.calendarEvents = [workspace.calendarEvents![1]];
+    expect(await save(A, workspace, 1)).toBe(2);
+    expect(parseCloudSnapshot(await read(A), true).workspace.calendarEvents).toEqual(
+      workspace.calendarEvents,
+    );
+    for (const invalid of [
+      { ...fixture().calendarEvents![0], endDate: "2026-11-01" },
+      { ...fixture().calendarEvents![0], endTime: "08:00" },
+      { ...fixture().calendarEvents![0], allDay: true },
+      { ...fixture().calendarEvents![0], kind: "Invalid" as never },
+    ]) {
+      const broken = fixture();
+      broken.calendarEvents = [invalid];
+      await expect(save(A, broken, 2)).rejects.toMatchObject({ code: "23514" });
+    }
+    // Every rejected save rolled back, so the stored revision never advanced.
+    expect(parseCloudSnapshot(await read(A), true).revision).toBe(2);
+  });
+
+  it("round-trips attachment metadata, detaches one file, and clears them with their record", async () => {
+    const workspace = fixture();
+    await save(A, workspace);
+    expect(parseCloudSnapshot(await read(A), true).workspace.modifications![0].attachments).toEqual(
+      workspace.modifications![0].attachments,
+    );
+    // A second file on the same record keeps both, in order.
+    const second = {
+      ...workspace.modifications![0].attachments![0],
+      id: "file-2",
+      name: "trace.log",
+      storedName: "trace.log",
+      contentType: "application/gzip",
+      encoding: "gzip" as const,
+      path: `${A}/change-1/file-2`,
+    };
+    workspace.modifications![0].attachments = [
+      workspace.modifications![0].attachments![0],
+      second,
+    ];
+    await save(A, workspace, 1);
+    expect(
+      parseCloudSnapshot(await read(A), true).workspace.modifications![0].attachments,
+    ).toHaveLength(2);
+    // Detaching one file removes only its row.
+    workspace.modifications![0].attachments = [second];
+    await save(A, workspace, 2);
+    expect(parseCloudSnapshot(await read(A), true).workspace.modifications![0].attachments).toEqual([
+      second,
+    ]);
+    // A record with no attachments reads back as an empty list, never a missing field.
+    workspace.modifications![0].attachments = [];
+    await save(A, workspace, 3);
+    expect(parseCloudSnapshot(await read(A), true).workspace.modifications![0].attachments).toEqual(
+      [],
+    );
+    // Deleting the modification cascades its attachment rows away.
+    workspace.modifications![0].attachments = [second];
+    await save(A, workspace, 4);
+    workspace.modifications = [];
+    await save(A, workspace, 5);
+    expect((await db.query("select * from public.qa_modification_attachments")).rows).toEqual([]);
+    // An unknown encoding is rejected by the check constraint, rolling the whole save back.
+    const broken = fixture();
+    broken.modifications![0].attachments![0].encoding = "rar" as never;
+    await expect(save(A, broken, 6)).rejects.toMatchObject({ code: "23514" });
+    expect(parseCloudSnapshot(await read(A), true).revision).toBe(6);
   });
 
   it("updates and deletes rows, retains creation timestamps, and preserves history after project deletion", async () => {
@@ -232,6 +520,7 @@ describe("relational workspace database", () => {
     expect(saved.tests[0].projectId).toBeUndefined();
     expect(saved.deployments![0]).toMatchObject({ projectId: "", projectName: "Portal" });
     expect(saved.modifications![0]).toMatchObject({ projectId: "", projectName: "Portal" });
+    expect(saved.calendarEvents![0]).toMatchObject({ title: "Sprint planning", projectId: "" });
     await save(A, emptyWorkspace(), 3);
     expect((await db.query("select * from public.qa_issue_labels")).rows).toEqual([]);
     expect(parseCloudSnapshot(await read(A), true).workspace).toEqual(emptyWorkspace());
@@ -245,7 +534,10 @@ describe("relational workspace database", () => {
     broken.projects![0].name = "Must roll back";
     broken.deployments![0].status = "Invalid" as never;
     await expect(save(A, broken, 1)).rejects.toMatchObject({ code: "23514" });
-    expect(parseCloudSnapshot(await read(A), true)).toEqual({ workspace: fixture(), revision: 1 });
+    expect(parseCloudSnapshot(await read(A), true)).toMatchObject({
+      workspace: fixture(),
+      revision: 1,
+    });
     await expect(save(B, broken)).rejects.toMatchObject({ code: "23514" });
     expect(await read(B)).toBeNull();
   });
@@ -257,6 +549,7 @@ describe("relational workspace database", () => {
     other.tests = [];
     other.modifications = [];
     other.deployments = [];
+    other.calendarEvents = [];
     await save(B, other);
     await save(A);
     const badLink = workspaceForSave(fixture());
@@ -324,13 +617,16 @@ describe("relational workspace database", () => {
         ),
       ).rejects.toMatchObject({ code: "22023" });
     }
-    expect(parseCloudSnapshot(await read(A), true)).toEqual({ workspace: fixture(), revision: 1 });
+    expect(parseCloudSnapshot(await read(A), true)).toMatchObject({
+      workspace: fixture(),
+      revision: 1,
+    });
   });
 
   it("allows invited members to edit and removes access immediately after removal", async () => {
     await save(A);
     await join(B, await invite());
-    expect(parseCloudSnapshot(await read(B, A), false).workspace).toEqual(fixture());
+    expect(parseCloudSnapshot(await read(B, A), false).workspace).toMatchObject(fixture());
     expect(await read(C, A)).toBeNull();
     const changed = fixture();
     changed.projects![0].department = "Team QA";

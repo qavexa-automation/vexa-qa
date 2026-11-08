@@ -1,7 +1,27 @@
-export const STATUSES = ["Backlog", "In progress", "In review", "Done"] as const;
+import { modificationXp } from "./modification-quests";
+import { toModificationDate } from "./modifications";
+import { calendarEventSchema } from "@/features/activity-calendar/schemas/calendar-event-schema";
+import type { CalendarEvent } from "@/features/activity-calendar/types/calendar-event";
+import { attachmentSchema } from "@/features/attachments/schemas/attachment-schema";
+import type { Attachment } from "@/features/attachments/types/attachment";
+
+export const STATUSES = ["Backlog", "In progress", "In review", "Completed"] as const;
 export const PRIORITIES = ["Critical", "High", "Medium", "Low"] as const;
 export const TYPES = ["Bug", "Task", "Story"] as const;
 export const TEST_STATUSES = ["Passed", "Failed", "Not Applicable", "Not Tested"] as const;
+export const PROJECT_STATUSES = [
+  "Not Started",
+  "Requirements Gathering",
+  "Analysis & Design",
+  "In Development",
+  "For QA Testing",
+  "For UAT",
+  "For Deployment",
+  "Deployed",
+  "On Hold",
+  "Cancelled",
+] as const;
+export type ProjectStatus = (typeof PROJECT_STATUSES)[number];
 export const DEPLOYMENT_ENVIRONMENTS = ["Development", "Staging", "Production"] as const;
 export const DEPLOYMENT_STATUSES = [
   "Planned",
@@ -49,6 +69,8 @@ export type Project = {
   // Retained for records saved before Department/Section became one field.
   section?: string;
   developer: string;
+  /** Older saved projects default to Not Started. */
+  status?: ProjectStatus;
 };
 export type Deployment = {
   id: string;
@@ -70,6 +92,10 @@ export type Modification = {
   status: Status;
   developer: string;
   notes: string;
+  requestedAt?: string | null;
+  modifiedAt?: string | null;
+  /** Files attached to the record; absent on records saved before attachments existed. */
+  attachments?: Attachment[];
 };
 export function getDepartmentSection(project: Pick<Project, "department" | "section">): string {
   const department = project.department.trim();
@@ -79,6 +105,7 @@ export function getDepartmentSection(project: Pick<Project, "department" | "sect
   return `${department} / ${section}`;
 }
 export type Workspace = {
+  calendarEvents?: CalendarEvent[];
   projects?: Project[];
   deployments?: Deployment[];
   modifications?: Modification[];
@@ -149,7 +176,7 @@ function filterByProject<T extends { projectId?: string; title: string }>(
   });
 }
 export function metrics(workspace: Workspace) {
-  const done = workspace.issues.filter((i) => i.status === "Done");
+  const done = workspace.issues.filter((i) => i.status === "Completed");
   const run = workspace.tests.filter((t) => t.status === "Passed" || t.status === "Failed");
   const passed = run.filter((t) => t.status === "Passed").length;
   return {
@@ -158,13 +185,30 @@ export function metrics(workspace: Workspace) {
     progress: workspace.issues.length
       ? Math.round((done.length / workspace.issues.length) * 100)
       : 0,
-    bugs: workspace.issues.filter((i) => i.type === "Bug" && i.status !== "Done").length,
-    critical: workspace.issues.filter((i) => i.priority === "Critical" && i.status !== "Done")
+    bugs: workspace.issues.filter((i) => i.type === "Bug" && i.status !== "Completed").length,
+    critical: workspace.issues.filter((i) => i.priority === "Critical" && i.status !== "Completed")
       .length,
     passRate: run.length ? Math.round((passed / run.length) * 100) : 0,
     passed,
     run: run.length,
-    xp: done.reduce((sum, issue) => sum + issue.xp, 0),
+    // Modifications earn XP by status on the Quest Board (see modification-quests.ts).
+    xp: done.reduce((sum, issue) => sum + issue.xp, 0) + modificationXp(workspace.modifications),
+  };
+}
+export function deleteTest(workspace: Workspace, id: string): Workspace {
+  if (!workspace.tests.some((test) => test.id === id)) return workspace;
+  return {
+    ...workspace,
+    tests: workspace.tests.filter((test) => test.id !== id),
+    activity: [
+      {
+        id: crypto.randomUUID(),
+        text: `${id} deleted`,
+        date: new Date().toISOString(),
+        kind: "test" as const,
+      },
+      ...workspace.activity,
+    ].slice(0, 40),
   };
 }
 export function moveIssue(workspace: Workspace, id: string, status: Status): Workspace {
@@ -176,7 +220,7 @@ export function moveIssue(workspace: Workspace, id: string, status: Status): Wor
     activity: [
       {
         id: crypto.randomUUID(),
-        text: `${id} moved to ${status}${status === "Done" ? ` · ${issue.xp} XP earned` : ""}`,
+        text: `${id} moved to ${status}${status === "Completed" ? ` · ${issue.xp} XP earned` : ""}`,
         date: new Date().toISOString(),
         kind: "issue" as const,
       },
@@ -211,6 +255,9 @@ export function isWorkspace(value: unknown): value is Workspace {
   return (
     typeof data.sprint === "string" &&
     typeof data.sprintGoal === "string" &&
+    (data.calendarEvents === undefined ||
+      (Array.isArray(data.calendarEvents) &&
+        data.calendarEvents.every((event) => calendarEventSchema.safeParse(event).success))) &&
     (data.modifications === undefined ||
       (Array.isArray(data.modifications) &&
         data.modifications.every(
@@ -224,7 +271,18 @@ export function isWorkspace(value: unknown): value is Workspace {
             PRIORITIES.includes(modification.priority) &&
             STATUSES.includes(modification.status) &&
             typeof modification.developer === "string" &&
-            typeof modification.notes === "string",
+            typeof modification.notes === "string" &&
+            (modification.requestedAt == null ||
+              (typeof modification.requestedAt === "string" &&
+                Number.isFinite(Date.parse(modification.requestedAt)))) &&
+            (modification.modifiedAt == null ||
+              (typeof modification.modifiedAt === "string" &&
+                Number.isFinite(Date.parse(modification.modifiedAt)))) &&
+            (modification.attachments === undefined ||
+              (Array.isArray(modification.attachments) &&
+                modification.attachments.every(
+                  (attachment) => attachmentSchema.safeParse(attachment).success,
+                ))),
         ))) &&
     (data.deployments === undefined ||
       (Array.isArray(data.deployments) &&
@@ -250,7 +308,8 @@ export function isWorkspace(value: unknown): value is Workspace {
             typeof project.name === "string" &&
             typeof project.department === "string" &&
             (project.section === undefined || typeof project.section === "string") &&
-            typeof project.developer === "string",
+            typeof project.developer === "string" &&
+            (project.status === undefined || PROJECT_STATUSES.includes(project.status)),
         ))) &&
     Array.isArray(data.issues) &&
     data.issues.every(
@@ -296,6 +355,7 @@ export function isWorkspace(value: unknown): value is Workspace {
 }
 export function emptyWorkspace(): Workspace {
   return {
+    calendarEvents: [],
     projects: [],
     deployments: [],
     modifications: [],
@@ -305,6 +365,15 @@ export function emptyWorkspace(): Workspace {
     sprint: "Sprint 01",
     sprintGoal: "Ship something worth celebrating.",
   };
+}
+// The final status was called "Done" before it became "Completed".
+function renameDone(records: unknown) {
+  if (!Array.isArray(records)) return records;
+  return records.map((record: unknown) =>
+    record && typeof record === "object" && "status" in record && record.status === "Done"
+      ? { ...record, status: "Completed" }
+      : record,
+  );
 }
 export function parseWorkspace(value: unknown): Workspace | null {
   if (!value || typeof value !== "object") return null;
@@ -319,6 +388,23 @@ export function parseWorkspace(value: unknown): Workspace | null {
           return test;
         })
       : stored.tests,
+    issues: renameDone(stored.issues),
+    modifications: renameDone(stored.modifications),
   };
-  return isWorkspace(candidate) ? candidate : null;
+  if (!isWorkspace(candidate)) return null;
+  return candidate.modifications
+    ? {
+        ...candidate,
+        // Only dates a record carries are normalized; absent ones stay absent.
+        modifications: candidate.modifications.map((modification) => ({
+          ...modification,
+          ...(modification.requestedAt !== undefined && {
+            requestedAt: toModificationDate(modification.requestedAt),
+          }),
+          ...(modification.modifiedAt !== undefined && {
+            modifiedAt: toModificationDate(modification.modifiedAt),
+          }),
+        })),
+      }
+    : candidate;
 }

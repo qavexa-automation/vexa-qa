@@ -1,0 +1,44 @@
+@import url("https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700;800&family=DM+Sans:wght@400;450;500;550;600;650;700;750&display=swap");
+
+/*
+  The workspace's own stylesheets sit in a "legacy" cascade layer between Tailwind's reset (base)
+  and its utilities. They still win over the reset, so existing screens look the same, while
+  design-system components rendered inside them keep their utility classes. Move rules out of the
+  legacy layer as screens migrate (ADOPTING.md, Phase 4).
+*/
+@layer theme, base, legacy, components, utilities;
+
+@import "../../styles/design-system.css";
+@import "./globals.css" layer(legacy);
+@import "./auth.css" layer(legacy);
+@import "./theme.css" layer(legacy);
+
+/*
+  Browser defaults the workspace stylesheets relied on before Tailwind's reset was loaded.
+  Zero-specificity, so any workspace or design-system class still overrides them.
+*/
+@layer legacy {
+  :where(ol) {
+    list-style: decimal;
+  }
+  :where(svg, img, video, canvas) {
+    display: revert;
+    vertical-align: revert;
+  }
+  :where(h4, h5, h6) {
+    font-size: revert;
+    font-weight: revert;
+  }
+}
+
+/*
+  The sign-in page (src/components/auth-page.tsx) is a fixed light design in both themes. These
+  rules sit outside the cascade layers on purpose: the input primitives carry a `dark:bg-input/30`
+  utility, and the `dark:` variant matches any descendant of the themed <html>, so a layered rule
+  could not win no matter how specific. Unlayered rules outrank every layer.
+*/
+.vexa-auth [data-slot="input-group"],
+.vexa-auth [data-slot="input-group-control"] {
+  background-color: var(--auth-surface);
+  color: var(--auth-ink);
+}

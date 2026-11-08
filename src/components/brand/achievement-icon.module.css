@@ -1,0 +1,142 @@
+/* Motion only: each achievement keeps its existing layout and semantic color. */
+.float {
+  animation: float 4.8s ease-in-out infinite;
+}
+.scuttle {
+  animation: scuttle 4.6s ease-in-out infinite;
+}
+.swing {
+  animation: swing 5s ease-in-out infinite;
+  transform-origin: 50% 75%;
+}
+.tilt {
+  animation: tilt 5.2s ease-in-out infinite;
+  transform-origin: 50% 80%;
+}
+.charge {
+  animation: charge 3.8s ease-in-out infinite;
+}
+.shield {
+  animation: shield 4.8s ease-in-out infinite;
+}
+.halo {
+  animation: halo 4s ease-in-out infinite;
+}
+.sparkle {
+  animation: sparkle 3.6s ease-in-out infinite;
+}
+.paused,
+.paused * {
+  animation-play-state: paused !important;
+}
+
+@keyframes float {
+  0%,
+  100% {
+    transform: translateY(0) rotate(-3deg);
+  }
+  50% {
+    transform: translateY(-4px) rotate(3deg);
+  }
+}
+@keyframes scuttle {
+  0%,
+  60%,
+  100% {
+    transform: translateX(0) rotate(0);
+  }
+  15% {
+    transform: translateX(-3px) rotate(-8deg);
+  }
+  30% {
+    transform: translateX(3px) rotate(8deg);
+  }
+  45% {
+    transform: translateX(-1px) rotate(-3deg);
+  }
+}
+@keyframes swing {
+  0%,
+  65%,
+  100% {
+    transform: rotate(0);
+  }
+  20% {
+    transform: rotate(-14deg);
+  }
+  40% {
+    transform: rotate(12deg);
+  }
+}
+@keyframes tilt {
+  0%,
+  70%,
+  100% {
+    transform: rotate(0);
+  }
+  25% {
+    transform: rotate(12deg);
+  }
+  45% {
+    transform: rotate(-10deg);
+  }
+}
+@keyframes charge {
+  0%,
+  70%,
+  100% {
+    transform: scale(1);
+    opacity: 0.8;
+  }
+  35% {
+    transform: scale(1.14) rotate(-5deg);
+    opacity: 1;
+  }
+  50% {
+    transform: scale(1.04) rotate(3deg);
+    opacity: 1;
+  }
+}
+@keyframes shield {
+  0%,
+  100% {
+    transform: translateY(0) scale(1);
+  }
+  50% {
+    transform: translateY(-2px) scale(1.08);
+  }
+}
+@keyframes halo {
+  0%,
+  100% {
+    transform: scale(0.85);
+    opacity: 0.08;
+  }
+  50% {
+    transform: scale(1.15);
+    opacity: 0.3;
+  }
+}
+@keyframes sparkle {
+  0%,
+  100% {
+    transform: scale(0.6) rotate(-12deg);
+    opacity: 0.25;
+  }
+  50% {
+    transform: scale(1) rotate(12deg);
+    opacity: 0.9;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .float,
+  .scuttle,
+  .swing,
+  .tilt,
+  .charge,
+  .shield,
+  .halo,
+  .sparkle {
+    animation: none;
+  }
+}

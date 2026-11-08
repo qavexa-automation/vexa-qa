@@ -9,12 +9,18 @@ export function workspaceForSave(workspace: Workspace) {
     id: project.id,
     name: project.name,
     developer: project.developer,
+    status: project.status ?? "Not Started",
     department: getDepartmentSection(project),
   }));
   const ids = new Set(projects.map((project) => project.id));
   const projectId = (id: string | undefined) => (id && ids.has(id) ? id : null);
   return {
     ...workspace,
+    ...(workspace.calendarEvents !== undefined && {
+      calendarEvents: workspace.calendarEvents.map((event) => ({
+        ...event, projectId: projectId(event.projectId),
+      })),
+    }),
     projects,
     issues: workspace.issues.map((issue) => ({
       ...issue,

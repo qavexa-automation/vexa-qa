@@ -1,6 +1,12 @@
 "use client";
 import { useEffect, useState } from "react";
-import { Copy, Users, X } from "lucide-react";
+import { Copy, RefreshCw, Users, X } from "lucide-react";
+import { ConfirmDialog } from "@/components/forms/confirm-dialog";
+import { OptionCombobox } from "@/components/forms/option-combobox";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
+import { Field, FieldDescription, FieldLabel } from "@/components/ui/field";
+import { Input } from "@/components/ui/input";
 import { supabase } from "@/lib/supabase";
 import type { SharedWorkspace } from "@/lib/use-workspace";
 
@@ -25,6 +31,7 @@ export default function WorkspaceSharing({
   const [code, setCode] = useState("");
   const [invite, setInvite] = useState<Invite | null>(null);
   const [members, setMembers] = useState<Member[]>([]);
+  const [removing, setRemoving] = useState<Member | null>(null);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
   const [problem, setProblem] = useState("");
@@ -72,6 +79,20 @@ export default function WorkspaceSharing({
     }
   };
 
+  const removeMember = (member: Member) =>
+    run(async () => {
+      const result = await supabase!
+        .from("qa_workspace_members")
+        .delete()
+        .eq("workspace_owner", userId)
+        .eq("member_id", member.member_id);
+      if (result.error) throw new Error(result.error.message);
+      setMembers((previous) => previous.filter((m) => m.member_id !== member.member_id));
+      setMessage(
+        "Member removed. Disable or replace the invite code to prevent them from rejoining.",
+      );
+    });
+
   return (
     <div className="settings-account workspace-sharing">
       <span className="eyebrow">TEAM COLLABORATION</span>
@@ -82,59 +103,71 @@ export default function WorkspaceSharing({
         Everyone who joins can view and edit projects, quests, tests, modifications, and
         deployments. Saved changes appear automatically for teammates.
       </p>
-      <fieldset className="settings-form sharing-controls" disabled={busy}>
-        <label>
-          Current workspace
-          <select value={owner} onChange={(event) => void run(() => onSwitch(event.target.value))}>
-            <option value={userId}>My workspace</option>
-            {workspaces.map((w) => (
-              <option key={w.owner} value={w.owner}>
-                {w.label}
-              </option>
-            ))}
-          </select>
-        </label>
+      <fieldset className="mt-4 flex min-w-0 flex-col gap-5 border-0 p-0" disabled={busy}>
+        <OptionCombobox
+          id="sharing-workspace"
+          label="Current workspace"
+          options={[
+            { value: userId, label: "My workspace" },
+            ...workspaces.map((w) => ({ value: w.owner, label: w.label })),
+          ]}
+          placeholder="Select a workspace"
+          value={owner}
+          onChange={(next) => {
+            if (next !== owner) void run(() => onSwitch(next));
+          }}
+        />
         {own ? (
           <>
-            <p>
-              Share an invite code with your team. Codes expire after 7 days. Creating a new code
-              replaces the previous one; existing members keep access.
-            </p>
-            <button
-              className="button secondary"
-              type="button"
-              onClick={() =>
-                void run(async () => {
-                  if (!supabase) return;
-                  await flush();
-                  const result = await supabase.rpc("create_qa_workspace_invite");
-                  if (result.error) throw new Error(result.error.message);
-                  const saved = await supabase
-                    .from("qa_workspace_invites")
-                    .select("code, expires_at")
-                    .eq("workspace_owner", userId)
-                    .single();
-                  if (saved.error) throw new Error(saved.error.message);
-                  setInvite(saved.data);
-                  setMessage(
-                    "Invite code ready. Send it to the teammates you want to give edit access.",
-                  );
-                })
-              }
-            >
-              {invite ? "Create new invite code" : "Create invite code"}
-            </button>
+            <div className="flex flex-col items-start gap-2">
+              <p className="text-sm text-muted-foreground">
+                Share an invite code with your team. Codes expire after 7 days. Creating a new code
+                replaces the previous one; existing members keep access.
+              </p>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() =>
+                  void run(async () => {
+                    if (!supabase) return;
+                    await flush();
+                    const result = await supabase.rpc("create_qa_workspace_invite");
+                    if (result.error) throw new Error(result.error.message);
+                    const saved = await supabase
+                      .from("qa_workspace_invites")
+                      .select("code, expires_at")
+                      .eq("workspace_owner", userId)
+                      .single();
+                    if (saved.error) throw new Error(saved.error.message);
+                    setInvite(saved.data);
+                    setMessage(
+                      "Invite code ready. Send it to the teammates you want to give edit access.",
+                    );
+                  })
+                }
+              >
+                {invite ? "Create new invite code" : "Create invite code"}
+              </Button>
+            </div>
             {invite && (
-              <div className="sharing-invite">
-                <label>
-                  Invite code
-                  <input readOnly value={invite.code} onFocus={(e) => e.target.select()} />
-                </label>
-                <span>Expires {new Date(invite.expires_at).toLocaleString()}</span>
-                <div className="sharing-actions">
-                  <button
-                    className="button secondary"
+              <div className="flex flex-col gap-3 rounded-lg border border-border bg-muted/40 p-3">
+                <Field>
+                  <FieldLabel htmlFor="sharing-invite-code">Invite code</FieldLabel>
+                  <Input
+                    id="sharing-invite-code"
+                    readOnly
+                    className="font-mono"
+                    value={invite.code}
+                    onFocus={(e) => e.target.select()}
+                  />
+                  <FieldDescription>
+                    Expires {new Date(invite.expires_at).toLocaleString()}
+                  </FieldDescription>
+                </Field>
+                <div className="flex flex-wrap gap-2">
+                  <Button
                     type="button"
+                    variant="outline"
                     onClick={() =>
                       void run(async () => {
                         await navigator.clipboard.writeText(invite.code);
@@ -142,11 +175,11 @@ export default function WorkspaceSharing({
                       })
                     }
                   >
-                    <Copy size={14} /> Copy code
-                  </button>
-                  <button
-                    className="button secondary"
+                    <Copy aria-hidden="true" /> Copy code
+                  </Button>
+                  <Button
                     type="button"
+                    variant="outline"
                     onClick={() =>
                       void run(async () => {
                         const result = await supabase!
@@ -160,44 +193,36 @@ export default function WorkspaceSharing({
                     }
                   >
                     Disable code
-                  </button>
+                  </Button>
                 </div>
               </div>
             )}
-            <div className="sharing-members">
-              <strong>Workspace members</strong>
-              <p>You (owner)</p>
-              {members.map((member) => (
-                <div key={member.member_id} className="sharing-member">
-                  <span>{member.member_email}</span>
-                  <button
-                    className="button secondary"
-                    type="button"
-                    aria-label={`Remove ${member.member_email}`}
-                    onClick={() =>
-                      void run(async () => {
-                        const result = await supabase!
-                          .from("qa_workspace_members")
-                          .delete()
-                          .eq("workspace_owner", userId)
-                          .eq("member_id", member.member_id);
-                        if (result.error) throw new Error(result.error.message);
-                        setMembers((previous) =>
-                          previous.filter((m) => m.member_id !== member.member_id),
-                        );
-                        setMessage(
-                          "Member removed. Disable or replace the invite code to prevent them from rejoining.",
-                        );
-                      })
-                    }
+            <div className="flex flex-col gap-2">
+              <strong className="text-sm font-medium">Workspace members</strong>
+              <ul className="divide-y divide-border rounded-lg border border-border">
+                <li className="px-3 py-2 text-sm text-muted-foreground">You (owner)</li>
+                {members.map((member) => (
+                  <li
+                    key={member.member_id}
+                    className="flex items-center justify-between gap-3 px-3 py-2 text-sm"
                   >
-                    <X size={14} /> Remove
-                  </button>
-                </div>
-              ))}
-              <button
-                className="button secondary"
+                    <span className="min-w-0 truncate">{member.member_email}</span>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="ghost"
+                      aria-label={`Remove ${member.member_email}`}
+                      onClick={() => setRemoving(member)}
+                    >
+                      <X aria-hidden="true" /> Remove
+                    </Button>
+                  </li>
+                ))}
+              </ul>
+              <Button
                 type="button"
+                variant="outline"
+                className="self-start"
                 onClick={() =>
                   void run(async () => {
                     const result = await supabase!
@@ -210,16 +235,18 @@ export default function WorkspaceSharing({
                   })
                 }
               >
+                <RefreshCw aria-hidden="true" />
                 Refresh members
-              </button>
+              </Button>
             </div>
           </>
         ) : (
-          <p>
+          <p className="text-sm text-muted-foreground">
             You have edit access to this team workspace. The owner manages invitations and members.
           </p>
         )}
         <form
+          className="flex flex-col gap-2"
           onSubmit={(event) => {
             event.preventDefault();
             void run(async () => {
@@ -228,29 +255,45 @@ export default function WorkspaceSharing({
             });
           }}
         >
-          <label>
-            Join a team workspace
-            <input
+          <Field>
+            <FieldLabel htmlFor="sharing-join-code">Join a team workspace</FieldLabel>
+            <Input
+              id="sharing-join-code"
               required
+              className="font-mono"
               value={code}
               onChange={(event) => setCode(event.target.value)}
               placeholder="Paste an invite code"
               pattern="[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"
               title="Enter the full invite code supplied by the workspace owner."
             />
-          </label>
-          <button className="button primary" type="submit">
+          </Field>
+          <Button className="self-start" type="submit">
             Join workspace
-          </button>
+          </Button>
         </form>
       </fieldset>
-      {busy && <p role="status">Updating team workspace…</p>}
-      {message && <p role="status">{message}</p>}
+      <div aria-live="polite" className="mt-3 flex flex-col gap-2">
+        {busy && <p className="text-sm text-muted-foreground">Updating team workspace…</p>}
+        {message && <p className="text-sm">{message}</p>}
+      </div>
       {problem && (
-        <p className="sharing-error" role="alert">
-          {problem}
-        </p>
+        <Alert variant="destructive" className="mt-3">
+          <AlertDescription>{problem}</AlertDescription>
+        </Alert>
       )}
+      <ConfirmDialog
+        open={Boolean(removing)}
+        title={`Remove ${removing?.member_email ?? "this member"}?`}
+        description="They lose access to this workspace. Disable or replace the invite code to stop them from rejoining."
+        confirmLabel="Remove member"
+        onCancel={() => setRemoving(null)}
+        onConfirm={() => {
+          const member = removing;
+          setRemoving(null);
+          if (member) void removeMember(member);
+        }}
+      />
     </div>
   );
 }

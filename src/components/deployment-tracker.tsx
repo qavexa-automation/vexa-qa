@@ -1,13 +1,24 @@
 "use client";
 
 import { useRef, useState, type FormEvent } from "react";
-import { ArrowRight, Check, Pencil, Plus, Rocket, Trash2, X } from "lucide-react";
+import { ArrowRight, Check, Plus, Rocket, X } from "lucide-react";
 import {
   DEPLOYMENT_ENVIRONMENTS,
   DEPLOYMENT_STATUSES,
   type Deployment,
   type Project,
 } from "@/lib/model";
+import { ConfirmDialog } from "@/components/forms/confirm-dialog";
+import { FilterCombobox, valueOptions } from "@/components/forms/filter-combobox";
+import { OptionCombobox } from "@/components/forms/option-combobox";
+import { projectOptions } from "@/components/forms/project-options";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
+import { Field, FieldError, FieldGroup, FieldLabel } from "@/components/ui/field";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { EmptyState, Panel } from "@/components/app-shell/panel";
+import { DeploymentTable } from "@/components/workspace-tables/deployment-table";
 
 type Details = {
   projectId: string;
@@ -47,7 +58,7 @@ export default function DeploymentTracker({
   const [projectFilter, setProjectFilter] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
   const [error, setError] = useState("");
-  const projectInput = useRef<HTMLSelectElement>(null);
+  const projectInput = useRef<HTMLButtonElement>(null);
   const editing = deployments.find((deployment) => deployment.id === editingId);
   const selectedProject = projects.find((project) => project.id === details.projectId);
   const projectName =
@@ -110,76 +121,55 @@ export default function DeploymentTracker({
 
   return (
     <div className="deployment-layout">
-      <section className="panel">
-        <div className="panel-heading">
-          <div>
-            <span className="eyebrow">RELEASE CONTROL</span>
-            <h2>{editingId ? "Edit deployment" : "Add deployment"}</h2>
-          </div>
-          <Rocket size={19} className="muted" />
-        </div>
-        <form className="settings-form deployment-form" onSubmit={save}>
-          <div className="deployment-fields">
-            <label>
-              Project Name
-              <select
-                ref={projectInput}
+      <Panel
+        eyebrow="RELEASE CONTROL"
+        title={<>{editingId ? "Edit deployment" : "Add deployment"}</>}
+        action={
+          <>
+            <Rocket aria-hidden="true" className="size-5 text-muted-foreground" />
+          </>
+        }
+      >
+        <form className="flex flex-col gap-4" onSubmit={save}>
+          <FieldGroup className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+            <OptionCombobox
+              id="deployment-project"
+              label="Project name"
+              options={projectOptions(projects, editing)}
+              placeholder="Select a project"
+              triggerRef={projectInput}
+              value={details.projectId}
+              onChange={(value) => setDetails((current) => ({ ...current, projectId: value }))}
+            />
+            <OptionCombobox
+              id="deployment-environment"
+              label="Environment"
+              options={valueOptions(DEPLOYMENT_ENVIRONMENTS)}
+              placeholder="Select an environment"
+              value={details.environment}
+              onChange={(value) =>
+                setDetails((current) => ({
+                  ...current,
+                  environment: value as Details["environment"],
+                }))
+              }
+            />
+            <Field>
+              <FieldLabel htmlFor="deployment-version">Version / Release</FieldLabel>
+              <Input
+                id="deployment-version"
                 required
-                value={details.projectId}
-                onChange={(event) =>
-                  setDetails((value) => ({ ...value, projectId: event.target.value }))
-                }
-              >
-                <option value="" disabled>
-                  Select a project
-                </option>
-                {editing && !projects.some((project) => project.id === editing.projectId) && (
-                  <option value={editing.projectId} disabled>
-                    {editing.projectName} (archived)
-                  </option>
-                )}
-                {projects.map((project) => (
-                  <option key={project.id} value={project.id}>
-                    {project.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label>
-              Environment
-              <select
-                required
-                value={details.environment}
-                onChange={(event) =>
-                  setDetails((value) => ({
-                    ...value,
-                    environment: event.target.value as Details["environment"],
-                  }))
-                }
-              >
-                <option value="" disabled>
-                  Select an environment
-                </option>
-                {DEPLOYMENT_ENVIRONMENTS.map((environment) => (
-                  <option key={environment}>{environment}</option>
-                ))}
-              </select>
-            </label>
-            <label>
-              Version / Release
-              <input
-                required
-                maxLength={100}
                 placeholder="e.g. v1.0.0"
                 value={details.version}
                 onChange={(event) =>
                   setDetails((value) => ({ ...value, version: event.target.value }))
                 }
               />
-            </label>
-            <label>
-              Deployment Date
-              <input
+            </Field>
+            <Field>
+              <FieldLabel htmlFor="deployment-date">Deployment date</FieldLabel>
+              <Input
+                id="deployment-date"
                 required
                 type="date"
                 min="0001-01-01"
@@ -189,205 +179,145 @@ export default function DeploymentTracker({
                   setDetails((value) => ({ ...value, deploymentDate: event.target.value }))
                 }
               />
-            </label>
-            <label>
-              Status
-              <select
-                value={details.status}
-                onChange={(event) =>
-                  setDetails((value) => ({
-                    ...value,
-                    status: event.target.value as Deployment["status"],
-                  }))
-                }
-              >
-                {DEPLOYMENT_STATUSES.map((status) => (
-                  <option key={status}>{status}</option>
-                ))}
-              </select>
-            </label>
-            <label>
-              Notes <small>(optional)</small>
-              <textarea
+            </Field>
+            <OptionCombobox
+              id="deployment-status"
+              label="Status"
+              options={valueOptions(DEPLOYMENT_STATUSES)}
+              placeholder="Select a status"
+              value={details.status}
+              onChange={(value) =>
+                setDetails((current) => ({ ...current, status: value as Deployment["status"] }))
+              }
+            />
+            <Field>
+              <FieldLabel htmlFor="deployment-notes">
+                Notes <span className="font-normal text-muted-foreground">(optional)</span>
+              </FieldLabel>
+              <Textarea
+                id="deployment-notes"
                 rows={2}
-                maxLength={3000}
                 placeholder="Release details or deployment notes"
                 value={details.notes}
                 onChange={(event) =>
                   setDetails((value) => ({ ...value, notes: event.target.value }))
                 }
               />
-            </label>
-          </div>
+            </Field>
+          </FieldGroup>
           {!projects.length && !editing && (
-            <div className="info-note">
-              <span>Add a project in Project Maintenance before recording a deployment.</span>
-              <button type="button" className="text-button" onClick={onManageProjects}>
-                Add project <ArrowRight size={13} />
-              </button>
-            </div>
+            <Alert>
+              <AlertDescription className="flex flex-wrap items-center gap-2">
+                Add a project in Project Maintenance before recording a deployment.
+                <Button
+                  type="button"
+                  variant="link"
+                  className="h-auto p-0"
+                  onClick={onManageProjects}
+                >
+                  Add project <ArrowRight aria-hidden="true" />
+                </Button>
+              </AlertDescription>
+            </Alert>
           )}
-          {error && (
-            <p className="form-error" role="alert">
-              {error}
-            </p>
-          )}
-          <div className="project-form-actions">
-            <button
-              type="submit"
-              className="button primary"
-              disabled={!projects.length && !editing}
-            >
-              {editingId ? <Check size={15} /> : <Plus size={15} />}
+          {error && <FieldError>{error}</FieldError>}
+          <div className="flex flex-wrap gap-2">
+            <Button type="submit" disabled={!projects.length && !editing}>
+              {editingId ? <Check aria-hidden="true" /> : <Plus aria-hidden="true" />}
               {editingId ? "Save deployment" : "Add deployment"}
-            </button>
+            </Button>
             {editingId && (
-              <button type="button" className="button secondary" onClick={reset}>
-                <X size={15} />
+              <Button type="button" variant="outline" onClick={reset}>
+                <X aria-hidden="true" />
                 Cancel
-              </button>
+              </Button>
             )}
           </div>
         </form>
-      </section>
-      <section className="panel">
-        <div className="panel-heading deployment-record-heading">
-          <h2>
-            Deployment records <span className="subtle-label">({filtered.length})</span>
-          </h2>
-          <div className="deployment-filters">
-            <select
-              aria-label="Filter deployments by project"
-              value={activeProjectFilter}
-              onChange={(event) => setProjectFilter(event.target.value)}
-            >
-              <option value="">All projects</option>
-              {projects.map((project) => (
-                <option key={project.id} value={project.id}>
-                  {project.name}
-                </option>
-              ))}
-            </select>
-            <select
-              aria-label="Filter deployments by status"
-              value={statusFilter}
-              onChange={(event) => setStatusFilter(event.target.value)}
-            >
-              <option value="">All statuses</option>
-              {DEPLOYMENT_STATUSES.map((status) => (
-                <option key={status}>{status}</option>
-              ))}
-            </select>
-          </div>
-        </div>
-        {deleting && (
-          <div className="project-delete-notice" role="alert">
-            <p>
-              Delete deployment <strong>{deleting.version}</strong> for{" "}
-              <strong>{deleting.projectName}</strong>?
-            </p>
-            <div className="project-form-actions">
-              <button
-                type="button"
-                className="button fail-button"
-                onClick={() => {
-                  onChange(deployments.filter((deployment) => deployment.id !== deletingId));
-                  if (editingId === deletingId) reset();
-                  setDeletingId(null);
-                  onNotice("Deployment deleted");
-                }}
-              >
-                Confirm delete
-              </button>
-              <button
-                type="button"
-                className="button secondary"
-                onClick={() => setDeletingId(null)}
-              >
-                Cancel
-              </button>
+      </Panel>
+      <Panel
+        title={
+          <>
+            Deployment records{" "}
+            <span className="font-normal text-muted-foreground">({filtered.length})</span>
+          </>
+        }
+        action={
+          <>
+            <div className="flex flex-wrap gap-2">
+              <FilterCombobox
+                allLabel="All projects"
+                label="Filter deployments by project"
+                options={projectOptions(projects)}
+                value={activeProjectFilter}
+                onChange={setProjectFilter}
+              />
+              <FilterCombobox
+                allLabel="All statuses"
+                label="Filter deployments by status"
+                options={valueOptions(DEPLOYMENT_STATUSES)}
+                value={statusFilter}
+                onChange={setStatusFilter}
+              />
             </div>
-          </div>
-        )}
+          </>
+        }
+      >
+        <ConfirmDialog
+          open={Boolean(deleting)}
+          title={`Delete deployment ${deleting?.version ?? ""}?`}
+          description={`This removes the ${deleting?.environment ?? ""} deployment record for ${deleting?.projectName ?? "this project"}.`}
+          confirmLabel="Delete deployment"
+          onCancel={() => setDeletingId(null)}
+          onConfirm={() => {
+            onChange(deployments.filter((deployment) => deployment.id !== deletingId));
+            if (editingId === deletingId) reset();
+            setDeletingId(null);
+            onNotice("Deployment deleted");
+          }}
+        />
         <div className="issue-table-wrap">
-          <table className="project-table deployment-table">
-            <thead>
-              <tr>
-                <th scope="col">Project Name</th>
-                <th scope="col">Environment</th>
-                <th scope="col">Version / Release</th>
-                <th scope="col">Deployment Date</th>
-                <th scope="col">Status</th>
-                <th scope="col">Notes</th>
-                <th scope="col">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filtered.map((deployment) => (
-                <tr key={deployment.id}>
-                  <th scope="row">{deployment.projectName}</th>
-                  <td>{deployment.environment}</td>
-                  <td>{deployment.version}</td>
-                  <td className="deployment-date">{deployment.deploymentDate}</td>
-                  <td>
-                    <span
-                      className={`status deployment-status ${deployment.status.toLowerCase().replaceAll(" ", "-")}`}
-                    >
-                      <i />
-                      {deployment.status}
-                    </span>
-                  </td>
-                  <td className="deployment-notes">{deployment.notes || "—"}</td>
-                  <td>
-                    <div className="project-record-actions">
-                      <button
-                        type="button"
-                        className="icon-button"
-                        aria-label={`Edit deployment ${deployment.version} for ${deployment.projectName}`}
-                        onClick={() => {
-                          setEditingId(deployment.id);
-                          setDetails({
-                            projectId: deployment.projectId,
-                            environment: deployment.environment,
-                            version: deployment.version,
-                            deploymentDate: deployment.deploymentDate,
-                            status: deployment.status,
-                            notes: deployment.notes,
-                          });
-                          setDeletingId(null);
-                          setError("");
-                          projectInput.current?.focus();
-                        }}
-                      >
-                        <Pencil size={15} />
-                      </button>
-                      <button
-                        type="button"
-                        className="icon-button danger"
-                        aria-label={`Delete deployment ${deployment.version} for ${deployment.projectName}`}
-                        onClick={() => setDeletingId(deployment.id)}
-                      >
-                        <Trash2 size={15} />
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <DeploymentTable
+            deployments={filtered}
+            onEdit={(deployment) => {
+              setEditingId(deployment.id);
+              setDetails({
+                projectId: deployment.projectId,
+                environment: deployment.environment,
+                version: deployment.version,
+                deploymentDate: deployment.deploymentDate,
+                status: deployment.status,
+                notes: deployment.notes,
+              });
+              setDeletingId(null);
+              setError("");
+              projectInput.current?.focus();
+            }}
+            onDelete={(deployment) => setDeletingId(deployment.id)}
+            onUpdate={(deployment) => {
+              onChange(
+                deployments.map((entry) => (entry.id === deployment.id ? deployment : entry)),
+              );
+              if (editingId === deployment.id)
+                setDetails((value) => ({ ...value, status: deployment.status }));
+              onNotice(`${deployment.version} marked ${deployment.status}`);
+            }}
+          />
         </div>
         {!filtered.length && (
-          <div className="empty">
-            <Rocket size={30} />
-            <h3>{deployments.length ? "No matching deployments" : "No deployments yet"}</h3>
-            <p>
-              {deployments.length
-                ? "Adjust your project, status, or search filters."
-                : "Record your first deployment using the form above."}
-            </p>
-          </div>
+          <EmptyState
+            icon={Rocket}
+            title={<>{deployments.length ? "No matching deployments" : "No deployments yet"}</>}
+            description={
+              <>
+                {deployments.length
+                  ? "Adjust your project, status, or search filters."
+                  : "Record your first deployment using the form above."}
+              </>
+            }
+          />
         )}
-      </section>
+      </Panel>
     </div>
   );
 }

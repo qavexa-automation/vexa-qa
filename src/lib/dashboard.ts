@@ -1,21 +1,40 @@
-import { metrics, type Workspace } from "./model";
+import { metrics, PRIORITIES, STATUSES, type Workspace } from "./model";
+import { MODIFICATION_XP, questBoardIssues } from "./modification-quests";
+
+export function dashboardBacklog(workspace: Workspace, search = "") {
+  const query = search.trim().toLowerCase();
+  return questBoardIssues(workspace)
+    .filter(
+      (issue) =>
+        issue.status === "Backlog" &&
+        `${issue.id} ${issue.title} ${issue.description} ${issue.assignee} ${issue.labels.join(" ")}`
+          .toLowerCase()
+          .includes(query),
+    )
+    .sort((a, b) => PRIORITIES.indexOf(a.priority) - PRIORITIES.indexOf(b.priority));
+}
 
 export function dashboardSummary(workspace: Workspace) {
   const base = metrics(workspace);
+  const quests = questBoardIssues(workspace);
+  const done = quests.filter((quest) => quest.status === "Completed").length;
   const modifications = workspace.modifications ?? [];
   const deployments = workspace.deployments ?? [];
   const critical = workspace.issues.filter((issue) => issue.priority === "Critical");
   return {
     ...base,
+    total: quests.length,
+    done,
+    progress: quests.length ? Math.round((done / quests.length) * 100) : 0,
     projects: workspace.projects?.length ?? 0,
     tests: workspace.tests.length,
     failedTests: workspace.tests.filter((test) => test.status === "Failed").length,
     notTested: workspace.tests.filter((test) => test.status === "Not Tested").length,
     notApplicable: workspace.tests.filter((test) => test.status === "Not Applicable").length,
     modifications: modifications.length,
-    openModifications: modifications.filter((modification) => modification.status !== "Done")
+    openModifications: modifications.filter((modification) => modification.status !== "Completed")
       .length,
-    doneModifications: modifications.filter((modification) => modification.status === "Done")
+    doneModifications: modifications.filter((modification) => modification.status === "Completed")
       .length,
     deployments: deployments.length,
     deployed: deployments.filter((deployment) => deployment.status === "Deployed").length,
@@ -26,14 +45,14 @@ export function dashboardSummary(workspace: Workspace) {
     rolledBackDeployments: deployments.filter((deployment) => deployment.status === "Rolled back")
       .length,
     criticalTotal: critical.length,
-    criticalDone: critical.filter((issue) => issue.status === "Done").length,
+    criticalDone: critical.filter((issue) => issue.status === "Completed").length,
     criticalXp: critical
-      .filter((issue) => issue.status !== "Done")
+      .filter((issue) => issue.status !== "Completed")
       .reduce((sum, issue) => sum + issue.xp, 0),
     questStatuses: Object.fromEntries(
-      ["Backlog", "In progress", "In review", "Done"].map((status) => [
+      STATUSES.map((status) => [
         status,
-        workspace.issues.filter((issue) => issue.status === status).length,
+        quests.filter((quest) => quest.status === status).length,
       ]),
     ),
   };
@@ -75,14 +94,17 @@ export function workspaceContributors(workspace: Workspace) {
   for (const issue of workspace.issues) {
     const developer = person(issue.assignee);
     if (!developer) continue;
-    if (issue.status === "Done") {
+    if (issue.status === "Completed") {
       developer.completed += 1;
       developer.xp += issue.xp;
     } else developer.open += 1;
   }
   for (const modification of workspace.modifications ?? []) {
     const developer = person(modification.developer);
-    if (developer) developer.modifications += 1;
+    if (!developer) continue;
+    developer.modifications += 1;
+    // Same status legend as the Quest Board: In progress 50, Completed 100, others 0.
+    developer.xp += MODIFICATION_XP[modification.status];
   }
   return [...people.values()]
     .map((developer) => ({

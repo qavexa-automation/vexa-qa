@@ -1,5 +1,6 @@
 "use client";
 
+import { Button } from "@/components/ui/button";
 import type { ReactNode } from "react";
 import {
   ArrowRight,
@@ -10,23 +11,24 @@ import {
   FlaskConical,
   FolderKanban,
   NotebookPen,
-  Plus,
   Rocket,
   ShieldCheck,
+  Sparkles,
   Target,
   Trophy,
   Zap,
   type LucideIcon,
 } from "lucide-react";
-import { dashboardSummary } from "@/lib/dashboard";
+import { dashboardBacklog, dashboardSummary } from "@/lib/dashboard";
 import {
   filterIssuesByProject,
   filterTestsByProject,
-  PRIORITIES,
   STATUSES,
   type Issue,
   type Workspace,
 } from "@/lib/model";
+import { EmptyState, Panel, StatCard as Stat } from "@/components/app-shell/panel";
+import { PortfolioTable } from "@/components/workspace-tables/portfolio-table";
 
 type Destination =
   | "Quest board"
@@ -36,145 +38,68 @@ type Destination =
   | "Deployment Tracker"
   | "Leaderboard"
   | "Reports";
-function Panel({
-  title,
-  action,
-  children,
-}: {
-  title: string;
-  action?: ReactNode;
-  children: ReactNode;
-}) {
-  return (
-    <section className="panel">
-      <div className="panel-heading">
-        <h2>{title}</h2>
-        {action}
-      </div>
-      {children}
-    </section>
-  );
-}
-function Stat({
-  label,
-  value,
-  detail,
-  icon: Icon,
-  color,
-}: {
-  label: string;
-  value: string | number;
-  detail: string;
-  icon: LucideIcon;
-  color: string;
-}) {
-  return (
-    <section className="stat-card">
-      <div className="stat-top">
-        <span>{label}</span>
-        <span className={`stat-icon ${color}`}>
-          <Icon size={17} />
-        </span>
-      </div>
-      <strong className="stat-value">{value}</strong>
-      <div className="stat-detail">
-        <span className={`detail-dot ${color}`} />
-        {detail}
-      </div>
-    </section>
-  );
-}
 
 export default function WorkspaceDashboard({
   workspace,
+  userName,
   search,
-  heroArt,
   renderIssues,
   renderContributors,
   onNavigate,
-  onCreateQuest,
   onCriticalQuests,
 }: {
   workspace: Workspace;
+  userName?: string;
   search: string;
-  heroArt: ReactNode;
   renderIssues: (issues: Issue[], limit?: number) => ReactNode;
   renderContributors: () => ReactNode;
   onNavigate: (view: Destination) => void;
-  onCreateQuest: () => void;
   onCriticalQuests: () => void;
 }) {
   const summary = dashboardSummary(workspace);
-  const query = search.trim().toLowerCase();
-  const active = workspace.issues
-    .filter(
-      (issue) =>
-        issue.status !== "Done" &&
-        `${issue.id} ${issue.title} ${issue.assignee} ${issue.labels.join(" ")}`
-          .toLowerCase()
-          .includes(query),
-    )
-    .sort((a, b) => PRIORITIES.indexOf(a.priority) - PRIORITIES.indexOf(b.priority));
+  const backlog = dashboardBacklog(workspace, search);
   const link = (title: string, destination: Destination) => (
-    <button className="text-button" onClick={() => onNavigate(destination)}>
+    <Button variant="link" className="h-auto p-0" onClick={() => onNavigate(destination)}>
       {title}
       <ArrowUpRight size={14} />
-    </button>
+    </Button>
   );
   return (
     <>
-      <section className="hero">
-        <div className="hero-grid" />
-        <div className="hero-content">
-          <div className="hero-kicker">
-            <span>
-              <Crosshair size={12} />
-              YOUR LIVE WORKSPACE
-            </span>
-            <small>{summary.projects} PROJECTS</small>
-          </div>
-          <h2>
-            Your projects.
-            <br />
-            <span>Your progress.</span>
-          </h2>
-          <p>
-            {summary.total
-              ? `${summary.done} completed quests. ${summary.total - summary.done} still to go.`
-              : "Add a project and create your first quest."}
-            <br />
-            {summary.modifications} modifications · {summary.deployments} deployment records
-          </p>
-          <button
-            className="button hero-button"
-            onClick={() => onNavigate(summary.projects ? "Quest board" : "Project Maintenance")}
+      <header className="mb-6 flex flex-col gap-4 border-b border-border/70 pb-5 lg:flex-row lg:items-center lg:justify-between">
+        <div className="flex min-w-0 items-center gap-4">
+          <div
+            aria-hidden="true"
+            className="relative grid size-12 shrink-0 place-items-center rounded-xl bg-brand-subtle text-brand-strong ring-1 ring-brand-border sm:size-14"
           >
-            {summary.projects ? "Open quest board" : "Add your first project"}
-            <ArrowUpRight size={16} />
-          </button>
-        </div>
-        {heroArt}
-        <div className="hero-right">
-          <span className="hero-live">
-            <span className="live-dot" />
-            SAVED WORKSPACE DATA
-          </span>
-          <div className="hero-mini-stat">
-            <span>QUEST COMPLETION</span>
-            <strong>
-              {summary.progress}
-              <small>%</small>
-            </strong>
-            <div className="progress-track">
-              <span style={{ width: `${summary.progress}%` }} />
-            </div>
-            <p>
-              {summary.done} of {summary.total} quests complete
+            <ShieldCheck className="size-6 sm:size-7" strokeWidth={1.6} />
+            <Sparkles className="absolute -top-1 -right-1 size-4 text-status-attention motion-safe:animate-[pulse_2s_ease-in-out_2]" />
+          </div>
+          <div className="min-w-0">
+            <p className="mb-1 text-xs font-medium tracking-widest text-muted-foreground uppercase">
+              Your QA workspace
+            </p>
+            <h1 className="font-sans text-2xl leading-tight font-semibold tracking-tight text-foreground wrap-anywhere sm:text-3xl">
+              {userName ? (
+                <>Welcome back, <span className="text-brand-strong">{userName}</span>!</>
+              ) : "Welcome, let’s get testing!"}
+            </h1>
+            <p className="mt-1.5 text-sm leading-relaxed text-muted-foreground">
+              Ready, set, test. Let’s make today a win.
             </p>
           </div>
-          <span className="hero-coordinate">BUILT FROM YOUR RECORDS</span>
         </div>
-      </section>
+        <div className="flex flex-wrap items-center gap-2 lg:shrink-0">
+          <Button className="h-10 gap-2 px-4" onClick={() => onNavigate("Quest board")}>
+            View quests
+            <ArrowUpRight aria-hidden="true" className="size-4" />
+          </Button>
+          <Button variant="ghost" className="h-10 gap-2 px-3" onClick={() => onNavigate("Test lab")}>
+            <FlaskConical aria-hidden="true" className="size-4" />
+            Test lab
+          </Button>
+        </div>
+      </header>
       <div className="stats-grid">
         <Stat
           label="PROJECTS"
@@ -241,83 +166,50 @@ export default function WorkspaceDashboard({
         <div className="dashboard-main">
           <Panel title="Active quests" action={link("View all quests", "Quest board")}>
             <div className="dashboard-list-summary">
-              <span>{active.length} matching open quests</span>
+              <span>{backlog.length} matching backlog quests</span>
               <span>Ordered by priority</span>
             </div>
-            {renderIssues(active, 5)}
+            {renderIssues(backlog, 5)}
             <div className="panel-footer">
               <span>
-                Showing {Math.min(active.length, 5)} of {active.length} active quests
+                Showing {Math.min(backlog.length, 5)} of {backlog.length} backlog quests
               </span>
-              <button className="text-button" onClick={onCreateQuest}>
-                <Plus size={13} />
-                Add quest
-              </button>
             </div>
           </Panel>
           <Panel title="Project portfolio" action={link("Manage projects", "Project Maintenance")}>
-            <div className="dashboard-table-scroll">
-              <table className="dashboard-project-table">
-                <thead>
-                  <tr>
-                    <th scope="col">Project Name</th>
-                    <th scope="col">Developer</th>
-                    <th scope="col">Quests done</th>
-                    <th scope="col">Tests</th>
-                    <th scope="col">Open modifications</th>
-                    <th scope="col">Deployments</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {(workspace.projects ?? []).map((project) => {
-                    const issues = filterIssuesByProject(
-                      workspace.issues,
-                      workspace.projects ?? [],
-                      project.id,
-                    );
-                    const tests = filterTestsByProject(
-                      workspace.tests,
-                      workspace.projects ?? [],
-                      project.id,
-                    );
-                    return (
-                      <tr key={project.id}>
-                        <th scope="row">{project.name}</th>
-                        <td>{project.developer}</td>
-                        <td>
-                          {issues.filter((issue) => issue.status === "Done").length} /{" "}
-                          {issues.length}
-                        </td>
-                        <td>{tests.length}</td>
-                        <td>
-                          {
-                            (workspace.modifications ?? []).filter(
-                              (modification) =>
-                                modification.projectId === project.id &&
-                                modification.status !== "Done",
-                            ).length
-                          }
-                        </td>
-                        <td>
-                          {
-                            (workspace.deployments ?? []).filter(
-                              (deployment) => deployment.projectId === project.id,
-                            ).length
-                          }
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
+            <PortfolioTable
+              rows={(workspace.projects ?? []).map((project) => {
+                const issues = filterIssuesByProject(
+                  workspace.issues,
+                  workspace.projects ?? [],
+                  project.id,
+                );
+                return {
+                  id: project.id,
+                  name: project.name,
+                  developer: project.developer,
+                  questsDone: issues.filter((issue) => issue.status === "Completed").length,
+                  questsTotal: issues.length,
+                  tests: filterTestsByProject(workspace.tests, workspace.projects ?? [], project.id)
+                    .length,
+                  openModifications: (workspace.modifications ?? []).filter(
+                    (modification) =>
+                      modification.projectId === project.id && modification.status !== "Completed",
+                  ).length,
+                  deployments: (workspace.deployments ?? []).filter(
+                    (deployment) => deployment.projectId === project.id,
+                  ).length,
+                };
+              })}
+            />
             {!summary.projects && (
-              <div className="empty">
-                <FolderKanban size={26} />
-                <h3>No projects yet</h3>
-                <p>Projects you add in Project Maintenance will appear here.</p>
+              <EmptyState
+                icon={FolderKanban}
+                title={<>No projects yet</>}
+                description={<>Projects you add in Project Maintenance will appear here.</>}
+              >
                 {link("Add a project", "Project Maintenance")}
-              </div>
+              </EmptyState>
             )}
           </Panel>
           <Panel title="Work and delivery status">
@@ -386,9 +278,7 @@ export default function WorkspaceDashboard({
                 </div>
               ))}
               {!workspace.activity.length && (
-                <div className="empty">
-                  <p>No quest or test activity recorded yet.</p>
-                </div>
+                <EmptyState description={<>No quest or test activity recorded yet.</>} />
               )}
             </div>
           </Panel>
@@ -458,10 +348,10 @@ export default function WorkspaceDashboard({
                 }}
               />
             </div>
-            <button className="text-button" onClick={onCriticalQuests}>
+            <Button variant="link" className="h-auto p-0" onClick={onCriticalQuests}>
               View critical quests
               <ArrowUpRight size={14} />
-            </button>
+            </Button>
           </section>
         </div>
       </div>

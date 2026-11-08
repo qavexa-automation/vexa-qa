@@ -150,32 +150,32 @@ export function demoWorkspace(): Workspace {
       issue(1048, "Update password reset copy", "In review", "Low", "Task", "Sam Rivera", 50, [
         "Auth",
       ]),
-      issue(1049, "Fix session expiry redirect", "Done", "High", "Bug", "Alex Morgan", 100, [
+      issue(1049, "Fix session expiry redirect", "Completed", "High", "Bug", "Alex Morgan", 100, [
         "Auth",
       ]),
       issue(
         1050,
         "Validate product image uploads",
-        "Done",
+        "Completed",
         "Medium",
         "Story",
         "Taylor Brooks",
         75,
         ["Media"],
       ),
-      issue(1051, "Cover empty-cart edge cases", "Done", "Medium", "Task", "Jamie Chen", 75, [
+      issue(1051, "Cover empty-cart edge cases", "Completed", "Medium", "Task", "Jamie Chen", 75, [
         "Checkout",
       ]),
-      issue(1052, "Resolve duplicate order emails", "Done", "High", "Bug", "Sam Rivera", 100, [
+      issue(1052, "Resolve duplicate order emails", "Completed", "High", "Bug", "Sam Rivera", 100, [
         "Notifications",
       ]),
-      issue(1053, "Verify keyboard navigation", "Done", "Medium", "Story", "Alex Morgan", 75, [
+      issue(1053, "Verify keyboard navigation", "Completed", "Medium", "Story", "Alex Morgan", 75, [
         "Accessibility",
       ]),
-      issue(1054, "Test currency rounding", "Done", "High", "Task", "Jamie Chen", 100, [
+      issue(1054, "Test currency rounding", "Completed", "High", "Task", "Jamie Chen", 100, [
         "Payments",
       ]),
-      issue(1055, "Fix profile avatar alignment", "Done", "Low", "Bug", "Taylor Brooks", 50, [
+      issue(1055, "Fix profile avatar alignment", "Completed", "Low", "Bug", "Taylor Brooks", 50, [
         "Frontend",
       ]),
     ],

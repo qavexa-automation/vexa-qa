@@ -6,8 +6,10 @@ import {
   getDepartmentSection,
   isWorkspace,
   metrics,
+  deleteTest,
   moveIssue,
   parseWorkspace,
+  PROJECT_STATUSES,
   runTest,
   updateProjects,
 } from "./model";
@@ -200,9 +202,9 @@ describe("QA workspace rules", () => {
   });
   it("does not award XP twice and removes it when a quest is reopened", () => {
     const data = testWorkspace();
-    const completed = moveIssue(data, "VXA-1042", "Done");
+    const completed = moveIssue(data, "VXA-1042", "Completed");
     expect(metrics(completed).xp).toBe(metrics(data).xp + 150);
-    expect(moveIssue(completed, "VXA-1042", "Done")).toBe(completed);
+    expect(moveIssue(completed, "VXA-1042", "Completed")).toBe(completed);
     expect(metrics(moveIssue(completed, "VXA-1042", "In progress")).xp).toBe(metrics(data).xp);
     expect(data.issues[0].status).toBe("In progress");
   });
@@ -261,6 +263,41 @@ describe("QA workspace rules", () => {
       parseWorkspace({ ...data, tests: [{ ...data.tests[0], status: "Unknown" }] }),
     ).toBeNull();
   });
+  it("loads the former Done status as Completed for quests and modifications", () => {
+    const data = testWorkspace();
+    const modification = {
+      id: "m1",
+      projectId: "",
+      projectName: "Portal",
+      module: "Login",
+      description: "Validate login",
+      priority: "Medium",
+      status: "Done",
+      developer: "Ana",
+      notes: "",
+    };
+    const legacy = {
+      ...data,
+      issues: data.issues.map((issue, index) =>
+        index === 0 ? { ...issue, status: "Done" } : issue,
+      ),
+      modifications: [modification],
+    };
+    const migrated = parseWorkspace(JSON.parse(JSON.stringify(legacy)));
+    expect(migrated?.issues[0]).toEqual({ ...data.issues[0], status: "Completed" });
+    expect(migrated?.issues[1]).toEqual(data.issues[1]);
+    expect(migrated?.modifications?.[0]).toEqual({ ...modification, status: "Completed" });
+  });
+  it("deletes only the chosen test case and records it in activity", () => {
+    const data = testWorkspace();
+    const [first, second] = data.tests;
+    const next = deleteTest(data, first.id);
+    expect(next.tests.map((test) => test.id)).not.toContain(first.id);
+    expect(next.tests).toContainEqual(second);
+    expect(next.tests).toHaveLength(data.tests.length - 1);
+    expect(next.activity[0]).toMatchObject({ text: `${first.id} deleted`, kind: "test" });
+    expect(deleteTest(data, "TC-missing")).toBe(data);
+  });
   it("handles empty workspaces without NaN", () => {
     expect(metrics(emptyWorkspace())).toEqual({
       total: 0,
@@ -298,6 +335,13 @@ describe("QA workspace rules", () => {
     expect(isWorkspace(saved)).toBe(true);
     const { section: _section, ...combinedProject } = project;
     expect(isWorkspace({ ...legacy, projects: [combinedProject] })).toBe(true);
+    for (const status of PROJECT_STATUSES) {
+      const workspace = { ...legacy, projects: [{ ...combinedProject, status }] };
+      expect(parseWorkspace(JSON.parse(JSON.stringify(workspace)))?.projects?.[0].status).toBe(status);
+    }
+    for (const status of [null, "Invalid", "For QA Testin", 123]) {
+      expect(parseWorkspace({ ...legacy, projects: [{ ...combinedProject, status }] })).toBeNull();
+    }
     expect(isWorkspace({ ...legacy, projects: [{ ...project, section: null }] })).toBe(false);
     expect(isWorkspace({ ...legacy, projects: [{ ...project, developer: null }] })).toBe(false);
     expect(isWorkspace({ ...legacy, projects: {} })).toBe(false);

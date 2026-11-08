@@ -1,14 +1,23 @@
 "use client";
 
 import { useRef, useState, type FormEvent } from "react";
-import { Check, FolderKanban, Pencil, Plus, Trash2, X } from "lucide-react";
-import { getDepartmentSection, type Project } from "@/lib/model";
+import { Check, FolderKanban, Plus, X } from "lucide-react";
+import { getDepartmentSection, PROJECT_STATUSES, type Project } from "@/lib/model";
+import { OptionCombobox } from "@/components/forms/option-combobox";
+import { ConfirmDialog } from "@/components/forms/confirm-dialog";
+import { Button } from "@/components/ui/button";
+import { Field, FieldError, FieldGroup, FieldLabel } from "@/components/ui/field";
+import { Input } from "@/components/ui/input";
+import { EmptyState, Panel } from "@/components/app-shell/panel";
+import { ProjectTable } from "@/components/workspace-tables/project-table";
 
-type ProjectDetails = Omit<Project, "id" | "section">;
+type ProjectDetails = Required<Omit<Project, "id" | "section">>;
+const statusOptions = PROJECT_STATUSES.map((status) => ({ value: status, label: status }));
 const blankProject = (): ProjectDetails => ({
   name: "",
   department: "",
   developer: "",
+  status: "Not Started",
 });
 
 export default function ProjectMaintenance({
@@ -29,7 +38,7 @@ export default function ProjectMaintenance({
   const nameInput = useRef<HTMLInputElement>(null);
   const query = search.trim().toLowerCase();
   const filtered = projects.filter((project) =>
-    [project.name, getDepartmentSection(project), project.developer].some((value) =>
+    [project.name, getDepartmentSection(project), project.developer, project.status ?? "Not Started"].some((value) =>
       value.toLowerCase().includes(query),
     ),
   );
@@ -47,6 +56,7 @@ export default function ProjectMaintenance({
       name: details.name.trim(),
       department: details.department.trim(),
       developer: details.developer.trim(),
+      status: details.status,
     };
     if (Object.values(values).some((value) => !value)) {
       setError("Enter a project name, department/section, and developer.");
@@ -65,170 +75,148 @@ export default function ProjectMaintenance({
 
   return (
     <div className="project-maintenance">
-      <section className="panel project-editor">
-        <div className="panel-heading">
-          <div>
-            <span className="eyebrow">PROJECT DIRECTORY</span>
-            <h2>{editingId ? "Edit project" : "Add project"}</h2>
-          </div>
-          <FolderKanban size={19} className="muted" />
-        </div>
-        <form className="settings-form" onSubmit={save}>
-          <label>
-            Project Name
-            <input
-              ref={nameInput}
-              required
-              maxLength={120}
-              placeholder="Enter project name"
-              value={details.name}
-              onChange={(event) => setDetails((value) => ({ ...value, name: event.target.value }))}
+      <Panel
+        className="project-editor"
+        eyebrow="PROJECT DIRECTORY"
+        title={<>{editingId ? "Edit project" : "Add project"}</>}
+        action={
+          <>
+            <FolderKanban aria-hidden="true" className="size-5 text-muted-foreground" />
+          </>
+        }
+      >
+        <form className="flex flex-col gap-4" onSubmit={save}>
+          <FieldGroup className="gap-4">
+            <Field>
+              <FieldLabel htmlFor="project-name">Project name</FieldLabel>
+              <Input
+                id="project-name"
+                ref={nameInput}
+                required
+                placeholder="Enter project name"
+                value={details.name}
+                onChange={(event) =>
+                  setDetails((value) => ({ ...value, name: event.target.value }))
+                }
+              />
+            </Field>
+            <Field>
+              <FieldLabel htmlFor="project-department">Department/Section</FieldLabel>
+              <Input
+                id="project-department"
+                required
+                placeholder="Enter department or section"
+                value={details.department}
+                onChange={(event) =>
+                  setDetails((value) => ({ ...value, department: event.target.value }))
+                }
+              />
+            </Field>
+            <Field>
+              <FieldLabel htmlFor="project-developer">Developer</FieldLabel>
+              <Input
+                id="project-developer"
+                required
+                placeholder="Enter developer name"
+                value={details.developer}
+                onChange={(event) =>
+                  setDetails((value) => ({ ...value, developer: event.target.value }))
+                }
+              />
+            </Field>
+            <OptionCombobox
+              id="project-status"
+              label="Status"
+              options={statusOptions}
+              value={details.status}
+              placeholder="Select project status"
+              onChange={(status) => {
+                const selected = PROJECT_STATUSES.find((option) => option === status);
+                if (selected) setDetails((value) => ({ ...value, status: selected }));
+              }}
             />
-          </label>
-          <label>
-            Department/Section
-            <input
-              required
-              maxLength={240}
-              placeholder="Enter department or section"
-              value={details.department}
-              onChange={(event) =>
-                setDetails((value) => ({ ...value, department: event.target.value }))
-              }
-            />
-          </label>
-          <label>
-            Developer
-            <input
-              required
-              maxLength={120}
-              placeholder="Enter developer name"
-              value={details.developer}
-              onChange={(event) =>
-                setDetails((value) => ({ ...value, developer: event.target.value }))
-              }
-            />
-          </label>
-          {error && (
-            <p className="form-error" role="alert">
-              {error}
-            </p>
-          )}
-          <div className="project-form-actions">
-            <button type="submit" className="button primary">
-              {editingId ? <Check size={15} /> : <Plus size={15} />}
+          </FieldGroup>
+          {error && <FieldError>{error}</FieldError>}
+          <div className="flex flex-wrap gap-2">
+            <Button type="submit">
+              {editingId ? <Check aria-hidden="true" /> : <Plus aria-hidden="true" />}
               {editingId ? "Save project" : "Add project"}
-            </button>
+            </Button>
             {editingId && (
-              <button type="button" className="button secondary" onClick={reset}>
-                <X size={15} />
+              <Button type="button" variant="outline" onClick={reset}>
+                <X aria-hidden="true" />
                 Cancel
-              </button>
+              </Button>
             )}
           </div>
         </form>
-      </section>
+      </Panel>
 
-      <section className="panel project-directory">
-        <div className="panel-heading">
-          <h2>Project records</h2>
-          <span className="subtle-label">
-            {query ? `${filtered.length} OF ` : ""}
-            {projects.length} PROJECT{projects.length === 1 ? "" : "S"}
-          </span>
-        </div>
-        {deletingProject && (
-          <div className="project-delete-notice" role="alert">
-            <p>
-              Delete <strong>{deletingProject.name}</strong> from Project Maintenance?
-            </p>
-            <div className="project-form-actions">
-              <button
-                type="button"
-                className="button fail-button"
-                onClick={() => {
-                  onChange(projects.filter((project) => project.id !== deletingId));
-                  if (editingId === deletingId) reset();
-                  setDeletingId(null);
-                  onNotice("Project deleted");
-                }}
-              >
-                Confirm delete
-              </button>
-              <button
-                type="button"
-                className="button secondary"
-                onClick={() => setDeletingId(null)}
-              >
-                Cancel
-              </button>
-            </div>
-          </div>
-        )}
+      <Panel
+        className="project-directory"
+        title={<>Project records</>}
+        action={
+          <>
+            <span className="text-xs font-medium tracking-wide text-muted-foreground">
+              {query ? `${filtered.length} OF ` : ""}
+              {projects.length} PROJECT{projects.length === 1 ? "" : "S"}
+            </span>
+          </>
+        }
+      >
+        <ConfirmDialog
+          open={Boolean(deletingProject)}
+          title={`Delete ${deletingProject?.name ?? "this project"}?`}
+          description="This removes the project from Project Maintenance."
+          confirmLabel="Delete project"
+          onCancel={() => setDeletingId(null)}
+          onConfirm={() => {
+            onChange(projects.filter((project) => project.id !== deletingId));
+            if (editingId === deletingId) reset();
+            setDeletingId(null);
+            onNotice("Project deleted");
+          }}
+        />
         {filtered.length ? (
           <div className="issue-table-wrap">
-            <table className="project-table">
-              <thead>
-                <tr>
-                  <th scope="col">Project Name</th>
-                  <th scope="col">Department/Section</th>
-                  <th scope="col">Developer</th>
-                  <th scope="col">Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filtered.map((project) => (
-                  <tr key={project.id}>
-                    <th scope="row">{project.name}</th>
-                    <td>{getDepartmentSection(project)}</td>
-                    <td>{project.developer}</td>
-                    <td>
-                      <div className="project-record-actions">
-                        <button
-                          type="button"
-                          className="icon-button"
-                          aria-label={`Edit ${project.name}`}
-                          onClick={() => {
-                            setEditingId(project.id);
-                            setDetails({
-                              name: project.name,
-                              department: getDepartmentSection(project),
-                              developer: project.developer,
-                            });
-                            setDeletingId(null);
-                            setError("");
-                            nameInput.current?.focus();
-                          }}
-                        >
-                          <Pencil size={15} />
-                        </button>
-                        <button
-                          type="button"
-                          className="icon-button danger"
-                          aria-label={`Delete ${project.name}`}
-                          onClick={() => setDeletingId(project.id)}
-                        >
-                          <Trash2 size={15} />
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+            <ProjectTable
+              projects={filtered}
+              onEdit={(project) => {
+                setEditingId(project.id);
+                setDetails({
+                  name: project.name,
+                  department: getDepartmentSection(project),
+                  developer: project.developer,
+                  status: project.status ?? "Not Started",
+                });
+                setDeletingId(null);
+                setError("");
+                nameInput.current?.focus();
+              }}
+              onDelete={(project) => setDeletingId(project.id)}
+              onUpdate={(project) => {
+                onChange(projects.map((entry) => entry.id === project.id ? project : entry));
+                if (editingId === project.id) {
+                  setDetails((value) => ({ ...value, status: project.status ?? "Not Started" }));
+                }
+                onNotice("Project status updated");
+              }}
+            />
           </div>
         ) : (
-          <div className="empty">
-            <FolderKanban size={30} />
-            <h3>{query ? "No matching projects" : "No projects yet"}</h3>
-            <p>
-              {query
-                ? "Search by project name, department/section, or developer."
-                : "Add your first project using the form."}
-            </p>
-          </div>
+          <EmptyState
+            icon={FolderKanban}
+            title={<>{query ? "No matching projects" : "No projects yet"}</>}
+            description={
+              <>
+                {query
+                  ? "Search by project name, department/section, developer, or status."
+                  : "Add your first project using the form."}
+              </>
+            }
+          />
         )}
-      </section>
+      </Panel>
     </div>
   );
 }

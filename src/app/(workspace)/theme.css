@@ -1,0 +1,215 @@
+/*
+  Graphite & Teal: quiet neutral surfaces, near-black type, and one restrained teal accent used
+  for the primary action, the active place, and focus. Status colors stay distinct but muted.
+  Keep these values in step with the design-system tokens in src/styles/design-system.css.
+*/
+:root {
+  color-scheme: light;
+  --bg: #f7f7f5;
+  --sidebar: #fbfbfa;
+  --panel: #ffffff;
+  --panel-hover: #f4f4f2;
+  --surface-muted: #f2f2ef;
+  --border: #e4e4e0;
+  --text: #18181b;
+  --text-secondary: #3f3f46;
+  --text-muted: #71717a;
+  --accent-base: #0f766e;
+  --accent-hover: #115e59;
+  --accent-soft: #ecf7f5;
+  --on-accent: #ffffff;
+  --coral: #b42318;
+  --coral-soft: #fef3f2;
+  --purple: #6941c6;
+  --purple-soft: #f4f3ff;
+  --purple-border: #d9d6fe;
+  --orange: #c4320a;
+  --orange-soft: #fff6ed;
+  --orange-border: #f9dbaf;
+  --yellow: #b54708;
+  --yellow-soft: #fffaeb;
+  --yellow-border: #fedf89;
+  --success: #067647;
+  --success-soft: #ecfdf3;
+  --success-border: #abefc6;
+  --danger: #b42318;
+  --danger-soft: #fef3f2;
+  --danger-border: #fecdca;
+  --shadow-color: #18181b14;
+  --decoration: #0f766e0a;
+  --control-bg: #ffffff;
+  --control-bg-disabled: #f4f4f5;
+  /* Input borders keep 3:1 contrast against white. */
+  --control-border: #8b8b94;
+  --control-border-hover: #52525b;
+  --control-text: var(--text);
+  --control-placeholder: #71717a;
+  --control-muted: #71717a;
+  --control-focus: var(--accent-base);
+  --control-focus-ring: #0f766e24;
+  --control-error: var(--danger);
+  --generated-field-bg: #f4f4f5;
+  --generated-field-border: #a1a1aa;
+  --generated-field-text: #52525b;
+  --topbar-bg: #f7f7f5e6;
+  --auth-bg: #f7f7f5;
+  --auth-wash: transparent;
+  --card-shadow: #18181b0a;
+  --mode-shadow: #18181b0f;
+  --overlay-bg: #18181b66;
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #0f1113;
+  --sidebar: #121417;
+  --panel: #16181b;
+  --panel-hover: #1c1f23;
+  --surface-muted: #1a1d20;
+  --border: #2a2e33;
+  --text: #ededef;
+  --text-secondary: #c4c6ca;
+  --text-muted: #9a9ea6;
+  --accent-base: #5ec4b6;
+  --accent-hover: #7dd3c7;
+  --accent-soft: #15302d;
+  --on-accent: #062520;
+  --coral: #f27b73;
+  --coral-soft: #2b1716;
+  --purple: #b39df5;
+  --purple-soft: #1e1a33;
+  --purple-border: #3e3566;
+  --orange: #f5925e;
+  --orange-soft: #2a1a10;
+  --orange-border: #5e3618;
+  --yellow: #f0b44c;
+  --yellow-soft: #2a2112;
+  --yellow-border: #5c4415;
+  --success: #6ccb9a;
+  --success-soft: #12261c;
+  --success-border: #24543a;
+  --danger: #f97970;
+  --danger-soft: #2a1514;
+  --danger-border: #5c2622;
+  --shadow-color: #00000059;
+  --decoration: #5ec4b60a;
+  --control-bg: #121417;
+  --control-bg-disabled: #1a1d20;
+  --control-border: #646a73;
+  --control-border-hover: #8a9099;
+  --control-placeholder: #8a8e96;
+  --control-muted: #9a9ea6;
+  --control-focus-ring: #5ec4b62e;
+  --generated-field-bg: #1a1d20;
+  --generated-field-border: #4a4f57;
+  --generated-field-text: #a1a1aa;
+  --topbar-bg: #0f1113e6;
+  --auth-bg: #0f1113;
+  --auth-wash: transparent;
+  --card-shadow: #00000033;
+  --mode-shadow: #00000033;
+  --overlay-bg: #000000b3;
+}
+
+body {
+  background-color: var(--bg);
+  background-image: var(--ambient);
+  background-attachment: fixed;
+  background-repeat: no-repeat;
+}
+
+/*
+  Glass chrome. The shell surfaces take the same --glass tokens as the
+  design-system .glass class (src/styles/design-system.css), which is also where
+  they degrade to opaque when a browser has no backdrop-filter or the reader has
+  asked for reduced transparency. Surfaces that sit *inside* another glass pane
+  take the translucent fill only: a second backdrop-filter blurs the pane above
+  it rather than the page, which reads as muddy rather than layered.
+*/
+.sidebar {
+  background: var(--glass);
+  border-right-color: var(--glass-border);
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+  backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+}
+.panel,
+.kanban-column {
+  background: var(--glass);
+  border-color: var(--glass-border);
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+  backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+}
+.notification-popover {
+  background: var(--glass-strong);
+  border-color: var(--glass-border);
+  -webkit-backdrop-filter: blur(var(--glass-blur-strong)) saturate(var(--glass-saturate));
+  backdrop-filter: blur(var(--glass-blur-strong)) saturate(var(--glass-saturate));
+  box-shadow:
+    inset 0 1px 0 0 var(--glass-highlight),
+    0 24px 56px -20px var(--glass-shadow);
+}
+/* Inside the sidebar pane: fill only, no second blur. */
+.level-card,
+.profile {
+  background: var(--glass);
+  border-color: var(--glass-border);
+}
+.topbar {
+  background: var(--glass);
+  border-bottom-color: var(--glass-border);
+  -webkit-backdrop-filter: blur(var(--glass-blur-strong)) saturate(var(--glass-saturate));
+  backdrop-filter: blur(var(--glass-blur-strong)) saturate(var(--glass-saturate));
+  box-shadow: inset 0 1px 0 0 var(--glass-highlight);
+}
+.brand-dot {
+  color: var(--accent-base);
+}
+.nav-item.active {
+  background: var(--accent-soft);
+  color: var(--accent-base);
+}
+.nav-item.active:before {
+  background: var(--accent-base);
+  width: 3px;
+  border-radius: 0 3px 3px 0;
+}
+.level-card {
+  box-shadow: inset 0 1px 0 0 var(--glass-highlight);
+}
+.panel,
+.kanban-column {
+  box-shadow:
+    inset 0 1px 0 0 var(--glass-highlight),
+    0 1px 2px -1px var(--glass-shadow),
+    0 10px 28px -12px var(--glass-shadow);
+}
+.panel {
+  border-radius: 12px;
+}
+.progress-track,
+.chart-track {
+  background: var(--surface-muted);
+}
+.secondary:hover {
+  background: var(--accent-soft);
+  border-color: var(--control-border-hover);
+}
+.sidebar-scrim {
+  background: var(--overlay-bg);
+}
+.sidebar-theme {
+  display: none;
+  margin-bottom: 16px;
+}
+.sidebar-theme > span {
+  display: block;
+  color: var(--text-muted);
+  font-size: 10px;
+}
+@media (max-width: 1199px) {
+  .sidebar-theme {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+}

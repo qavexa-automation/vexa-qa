@@ -6,6 +6,7 @@ import { removeUntouchedDemoData } from "./seed";
 import { supabase } from "./supabase";
 import { CloudWorkspace } from "./cloud-workspace";
 import { relationalBackend } from "./relational-workspace";
+import { displayNameSchema, type ProfileSaveResult } from "@/features/profile";
 
 const STORAGE_KEY = "vexa-qa-demo-v1";
 export const LOCAL_WORKSPACE_BACKUP_KEY = `${STORAGE_KEY}-before-sample-cleanup`;
@@ -147,7 +148,7 @@ export function useWorkspace() {
     let cancelled = false;
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, session) => {
+    } = supabase.auth.onAuthStateChange((event, session) => {
       const next = session?.user ?? null;
       if (userRef.current !== (next?.id ?? null)) {
         epoch.current++;
@@ -158,6 +159,9 @@ export function useWorkspace() {
         setTimeout(() => {
           if (!cancelled) void load(next);
         }, 0);
+      } else if (event === "USER_UPDATED") {
+        // Refresh display metadata without reloading the workspace or losing pending edits.
+        setUser(next);
       }
     });
     return () => {
@@ -258,10 +262,21 @@ export function useWorkspace() {
     await load(user, String(result.data));
   };
 
+  const saveDisplayName = async (name: string): Promise<ProfileSaveResult> => {
+    const parsed = displayNameSchema.safeParse(name);
+    if (!parsed.success) return { ok: false, message: parsed.error.issues[0].message };
+    if (!user || !supabase) return { ok: false, message: "Sign in to update your display name." };
+    const result = await supabase.auth.updateUser({ data: { full_name: parsed.data } });
+    if (result.error) return { ok: false, message: "We couldn’t save your name. Please try again." };
+    if (userRef.current !== user.id) return { ok: false, message: "Your session changed. Sign in and try again." };
+    return { ok: true };
+  };
+
   return {
     workspace,
     setWorkspace,
     user,
+    saveDisplayName,
     owner,
     sharedWorkspaces,
     ready,

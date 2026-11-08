@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { dashboardSummary, workspaceContributors } from "./dashboard";
-import { emptyWorkspace, type Issue, type Workspace } from "./model";
+import { dashboardBacklog, dashboardSummary, workspaceContributors } from "./dashboard";
+import { modificationQuestId, modificationQuests } from "./modification-quests";
+import { emptyWorkspace, STATUSES, type Issue, type Workspace } from "./model";
 import { demoWorkspace, removeUntouchedDemoData } from "./seed";
 
 function actualWorkspace(): Workspace {
@@ -30,7 +31,7 @@ function actualWorkspace(): Workspace {
       { id: "p2", name: "Second project", department: "Operations", developer: "CHRIS" },
     ],
     issues: [
-      issue("q1", "Done", "pat reyes", 150, "High"),
+      issue("q1", "Completed", "pat reyes", 150, "High"),
       issue("q2", "In progress", "Chris", 200, "Critical"),
       issue("q3", "Backlog", "Other Person", 75, "High"),
     ],
@@ -52,7 +53,7 @@ function actualWorkspace(): Workspace {
         module: "Accounts",
         description: "Update validation",
         developer: "Pat Reyes",
-        status: "Done",
+        status: "Completed",
         priority: "High",
         notes: "",
       },
@@ -84,14 +85,54 @@ function actualWorkspace(): Workspace {
 }
 
 describe("actual workspace dashboard", () => {
+  it("shows backlog quests from the board and Modification Tracker in priority order", () => {
+    const workspace = actualWorkspace();
+    workspace.modifications![1].status = "Backlog";
+    workspace.modifications![1].priority = "Critical";
+    const before = JSON.stringify(workspace);
+
+    expect(dashboardBacklog(workspace).map((issue) => issue.id)).toEqual([
+      modificationQuestId(workspace.modifications![1]),
+      "q3",
+    ]);
+    expect(dashboardBacklog(workspace).every((issue) => issue.status === "Backlog")).toBe(true);
+    expect(dashboardBacklog(workspace)[0]).toMatchObject({
+      title: "Second project",
+      labels: ["Modification", "Search"],
+      assignee: "Chris",
+      xp: 0,
+    });
+    expect(JSON.stringify(workspace)).toBe(before);
+  });
+
+  it("searches backlog project names, descriptions, modules, and assignees without case sensitivity", () => {
+    const workspace = actualWorkspace();
+    workspace.modifications![1].status = "Backlog";
+    for (const query of [" SECOND PROJECT ", "improve matching", "SEARCH", "chris"]) {
+      expect(dashboardBacklog(workspace, query).map((issue) => issue.id)).toEqual([
+        modificationQuestId(workspace.modifications![1]),
+      ]);
+    }
+    expect(dashboardBacklog(workspace, "other person").map((issue) => issue.id)).toEqual(["q3"]);
+    expect(dashboardBacklog(workspace, "no match")).toEqual([]);
+    expect(dashboardBacklog(emptyWorkspace())).toEqual([]);
+  });
+
+  it("removes a backlog item from the preview as soon as its status changes", () => {
+    const workspace = actualWorkspace();
+    expect(dashboardBacklog(workspace).map((issue) => issue.id)).toEqual(["q3"]);
+    workspace.issues[2].status = "In progress";
+    expect(dashboardBacklog(workspace)).toEqual([]);
+  });
+
   it("uses saved records from all trackers and excludes unexecuted tests from pass rate", () => {
     const summary = dashboardSummary(actualWorkspace());
     expect(summary).toMatchObject({
       projects: 2,
-      total: 3,
-      done: 1,
-      progress: 33,
-      xp: 150,
+      total: 5,
+      done: 2,
+      progress: 40,
+      xp: 250, // 150 from completed quests + 100 from the completed modification
       bugs: 2,
       critical: 1,
       tests: 4,
@@ -117,11 +158,61 @@ describe("actual workspace dashboard", () => {
     expect(summary.questStatuses).toEqual({
       Backlog: 1,
       "In progress": 1,
-      "In review": 0,
-      Done: 1,
+      "In review": 1,
+      Completed: 2,
     });
   });
-  it("derives contributors from real assignments, merges casing, and ranks by completed XP", () => {
+
+  it("counts a completed modification when there are no standalone quests", () => {
+    const workspace = emptyWorkspace();
+    workspace.modifications = [actualWorkspace().modifications![0]];
+    expect(dashboardSummary(workspace)).toMatchObject({
+      total: 1,
+      done: 1,
+      progress: 100,
+      xp: 100,
+      questStatuses: { Backlog: 0, "In progress": 0, "In review": 0, Completed: 1 },
+    });
+  });
+
+  it("matches Quest Board counts for every status and updates after status changes", () => {
+    const workspace = actualWorkspace();
+    workspace.modifications = STATUSES.map((status, index) => ({
+      ...workspace.modifications![0],
+      id: `modification-${index}`,
+      status,
+    }));
+    const before = JSON.stringify(workspace);
+    const quests = [...workspace.issues, ...modificationQuests(workspace.modifications)];
+    const summary = dashboardSummary(workspace);
+    expect(summary.total).toBe(quests.length);
+    expect(summary.done).toBe(quests.filter((quest) => quest.status === "Completed").length);
+    for (const status of STATUSES) {
+      expect(summary.questStatuses[status]).toBe(quests.filter((quest) => quest.status === status).length);
+    }
+    expect(Object.values(summary.questStatuses).reduce((total, count) => total + count, 0)).toBe(summary.total);
+    expect(summary.total - summary.done).toBe(
+      summary.questStatuses.Backlog + summary.questStatuses["In progress"] + summary.questStatuses["In review"],
+    );
+    expect(summary.xp).toBe(300);
+    expect(JSON.stringify(workspace)).toBe(before);
+
+    workspace.modifications[0].status = "Completed";
+    const updated = dashboardSummary(workspace);
+    expect(updated.total).toBe(summary.total);
+    expect(updated.done).toBe(summary.done + 1);
+    expect(updated.questStatuses.Backlog).toBe(summary.questStatuses.Backlog - 1);
+    expect(updated.questStatuses.Completed).toBe(summary.questStatuses.Completed + 1);
+    workspace.modifications[0].status = "In progress";
+    expect(dashboardSummary(workspace).done).toBe(summary.done);
+  });
+
+  it("supports workspaces saved before modifications were added", () => {
+    const workspace = actualWorkspace();
+    delete workspace.modifications;
+    expect(dashboardSummary(workspace)).toMatchObject({ total: 3, done: 1, progress: 33, xp: 150 });
+  });
+  it("derives contributors from real assignments, merges casing, and ranks by completed XP plus modification XP", () => {
     const workspace = actualWorkspace();
     const before = JSON.stringify(workspace);
     const people = workspaceContributors(workspace);
@@ -131,14 +222,14 @@ describe("actual workspace dashboard", () => {
       completed: 1,
       open: 0,
       modifications: 1,
-      xp: 150,
+      xp: 250, // 150 from a completed quest + 100 from a completed modification
     });
     expect(people[1]).toMatchObject({
       projects: 1,
       completed: 0,
       open: 1,
       modifications: 1,
-      xp: 0,
+      xp: 0, // the modification is In review, worth 0
     });
     expect(JSON.stringify(workspace)).toBe(before);
   });

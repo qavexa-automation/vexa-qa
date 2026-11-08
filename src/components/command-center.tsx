@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
+import { useRouter } from "next/navigation";
 import {
   Activity,
   ArrowDown,
@@ -11,13 +12,17 @@ import {
   Bell,
   BookOpen,
   Bug,
+  CalendarDays,
   Check,
   CheckCheck,
   CheckCircle2,
   ChevronRight,
   CircleHelp,
+  Trash2,
+  Palette,
+  Pause,
+  Play,
   Code2,
-  Database,
   Download,
   ExternalLink,
   FileCheck2,
@@ -54,6 +59,7 @@ import {
   filterTestsByProject,
   filterIssuesByProject,
   metrics,
+  deleteTest,
   moveIssue,
   PRIORITIES,
   runTest,
@@ -62,6 +68,7 @@ import {
   TEST_STATUSES,
   updateProjects,
   type Issue,
+  type Modification,
   type Project,
   type Priority,
   type Status,
@@ -69,17 +76,58 @@ import {
   type Workspace,
 } from "@/lib/model";
 import { LOCAL_WORKSPACE_BACKUP_KEY, useWorkspace } from "@/lib/use-workspace";
+import { firstBloodAchievement } from "@/lib/achievements";
+import { AchievementIcon } from "@/components/brand/achievement-icon";
+import { ProfileSettings } from "@/features/profile";
+import {
+  MODIFICATION_XP,
+  modificationForQuest,
+  questBoardIssues,
+} from "@/lib/modification-quests";
 import { supabase } from "@/lib/supabase";
 import ProjectMaintenance from "@/components/project-maintenance";
 import TestCaseTable from "@/components/test-case-table";
+import { EmptyState, Panel, StatCard as Stat } from "@/components/app-shell/panel";
+import { IssueTable } from "@/components/workspace-tables/issue-table";
+import { IconButton } from "@/components/app-shell/icon-button";
+import { ConfirmDialog } from "@/components/forms/confirm-dialog";
+import { FilterCombobox, valueOptions } from "@/components/forms/filter-combobox";
+import { OptionCombobox } from "@/components/forms/option-combobox";
+import { projectOptions } from "@/components/forms/project-options";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { toast } from "sonner";
+import { Button, buttonVariants } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
+  Field,
+  FieldContent,
+  FieldDescription,
+  FieldGroup,
+  FieldLabel,
+} from "@/components/ui/field";
+import { Input } from "@/components/ui/input";
+import { InputGroup, InputGroupAddon, InputGroupInput } from "@/components/ui/input-group";
+import { Kbd } from "@/components/ui/kbd";
+import { Switch } from "@/components/ui/switch";
+import { Textarea } from "@/components/ui/textarea";
 import DeploymentTracker from "@/components/deployment-tracker";
 import ModificationTracker from "@/components/modification-tracker";
 import WorkspaceDashboard from "@/components/workspace-dashboard";
 import { workspaceContributors } from "@/lib/dashboard";
 import WorkspaceSharing from "@/components/workspace-sharing";
+import ThemeSwitcher from "@/components/theme-switcher";
+import { ActivityCalendarScreen } from "@/features/activity-calendar";
 
 type View =
   | "Overview"
+  | "Activity Calendar"
   | "Quest board"
   | "Modification Tracker"
   | "Test lab"
@@ -95,6 +143,7 @@ const navigation: { title: string; items: { name: View; icon: LucideIcon }[] }[]
     title: "WORKSPACE",
     items: [
       { name: "Overview", icon: LayoutDashboard },
+      { name: "Activity Calendar", icon: CalendarDays },
       { name: "Quest board", icon: ListTodo },
       { name: "Modification Tracker", icon: NotebookPen },
       { name: "Test lab", icon: FlaskConical },
@@ -121,6 +170,7 @@ const navigation: { title: string; items: { name: View; icon: LucideIcon }[] }[]
 const icons: Record<Issue["type"], LucideIcon> = { Bug, Task: CheckCheck, Story: BookOpen };
 const descriptions: Record<View, string> = {
   Overview: "Your next great release starts here.",
+  "Activity Calendar": "Plan meetings, test sessions, and releases across the month.",
   "Quest board": "Every issue is a quest. Make your next move.",
   "Modification Tracker": "Track project changes, modules, and modification progress.",
   "Test lab": "Put every flow to the test. Leave nothing to chance.",
@@ -132,6 +182,10 @@ const descriptions: Record<View, string> = {
   "Deployment Tracker": "Track project releases, environments, and deployment progress.",
   Settings: "Make this workspace your own.",
 };
+// The sidebar's footer links take the nav item's exact shape, so the sidebar reads as one list
+// top to bottom. Only the trailing arrow marks them as leaving the current view.
+const sidebarFooterLink =
+  "group mb-0.5 flex w-full items-center gap-[11px] rounded-[5px] px-[13px] py-2 text-left text-xs text-(--text-secondary) transition-colors hover:bg-(--surface-muted) hover:text-(--text) focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:outline-none active:translate-y-px";
 function Avatar({ name, size = "" }: { name: string; size?: string }) {
   const clean = name.trim();
   const parts = clean.split(/\s+/);
@@ -170,32 +224,6 @@ function StatusBadge({ status }: { status: Status }) {
     </span>
   );
 }
-function Panel({
-  title,
-  eyebrow,
-  action,
-  children,
-  className = "",
-}: {
-  title: string;
-  eyebrow?: string;
-  action?: ReactNode;
-  children: ReactNode;
-  className?: string;
-}) {
-  return (
-    <section className={`panel ${className}`}>
-      <div className="panel-heading">
-        <div>
-          {eyebrow && <span className="eyebrow">{eyebrow}</span>}
-          <h2>{title}</h2>
-        </div>
-        {action}
-      </div>
-      {children}
-    </section>
-  );
-}
 function Modal({
   title,
   subtitle,
@@ -209,115 +237,37 @@ function Modal({
   children: ReactNode;
   wide?: boolean;
 }) {
-  const dialog = useRef<HTMLDialogElement>(null);
-  useEffect(() => {
-    const element = dialog.current;
-    element?.showModal();
-    return () => element?.close();
-  }, []);
   return (
-    <dialog
-      ref={dialog}
-      className={`modal ${wide ? "wide" : ""}`}
-      onCancel={onClose}
-      onClick={(e) => {
-        if (e.target === e.currentTarget) {
-          const r = e.currentTarget.getBoundingClientRect();
-          if (
-            e.clientX < r.left ||
-            e.clientX > r.right ||
-            e.clientY < r.top ||
-            e.clientY > r.bottom
-          )
-            onClose();
-        }
+    <Dialog
+      open
+      onOpenChange={(open) => {
+        if (!open) onClose();
       }}
     >
-      <div className="modal-heading">
-        <div>
-          <span className="eyebrow">VEXA WORKSPACE</span>
-          <h2>{title}</h2>
-          {subtitle && <p>{subtitle}</p>}
-        </div>
-        <button className="icon-button" aria-label="Close dialog" onClick={onClose}>
-          <X size={20} />
-        </button>
-      </div>
-      {children}
-    </dialog>
+      <DialogContent
+        className={`max-h-[calc(100dvh-2rem)] overflow-y-auto p-5 ${wide ? "sm:max-w-2xl" : "sm:max-w-lg"}`}
+      >
+        <DialogHeader className="pr-8">
+          <span className="text-xs font-medium tracking-wide text-muted-foreground">
+            VEXA WORKSPACE
+          </span>
+          <DialogTitle className="font-heading text-2xl font-semibold wrap-anywhere">
+            {title}
+          </DialogTitle>
+          {subtitle && <DialogDescription>{subtitle}</DialogDescription>}
+        </DialogHeader>
+        {children}
+      </DialogContent>
+    </Dialog>
   );
 }
-function OrbitArt() {
-  return (
-    <div className="orbit-art" aria-hidden="true">
-      <svg viewBox="0 0 340 220" fill="none">
-        <defs>
-          <linearGradient
-            id="orb"
-            x1="115"
-            y1="35"
-            x2="220"
-            y2="190"
-            gradientUnits="userSpaceOnUse"
-          >
-            <stop stopColor="#b9fa63" />
-            <stop offset="1" stopColor="#244c36" />
-          </linearGradient>
-          <radialGradient id="glow">
-            <stop stopColor="#92f34f" stopOpacity=".22" />
-            <stop offset="1" stopColor="#92f34f" stopOpacity="0" />
-          </radialGradient>
-        </defs>
-        <circle cx="177" cy="110" r="110" fill="url(#glow)" />
-        <ellipse
-          cx="177"
-          cy="112"
-          rx="132"
-          ry="43"
-          stroke="#91c66c"
-          strokeOpacity=".3"
-          transform="rotate(-27 177 112)"
-        />
-        <ellipse
-          cx="177"
-          cy="112"
-          rx="112"
-          ry="60"
-          stroke="#91c66c"
-          strokeOpacity=".22"
-          transform="rotate(30 177 112)"
-        />
-        <path
-          d="m177 28 66 38v77l-66 39-66-39V66z"
-          fill="#254734"
-          stroke="#bafa53"
-          strokeOpacity=".5"
-        />
-        <path
-          d="m177 39 56 33v64l-56 33-56-33V72z"
-          fill="url(#orb)"
-          fillOpacity=".13"
-          stroke="#c5f790"
-          strokeOpacity=".3"
-        />
-        <path d="m148 78 18 37 25-53h21l-46 91-39-75z" fill="url(#orb)" />
-        <path d="m177 28 66 38-66 38-66-38m66 38v78" stroke="#bafa53" strokeOpacity=".12" />
-        <circle cx="60" cy="146" r="5" fill="#bcfa62" />
-        <circle cx="284" cy="62" r="3" fill="#bcfa62" />
-        <path d="M273 163h14m-7-7v14M75 57h10m-5-5v10" stroke="#bafa53" strokeOpacity=".5" />
-        <path d="M132 193h90" stroke="#bafa53" strokeOpacity=".25" />
-        <path d="M151 199h52" stroke="#bafa53" strokeOpacity=".12" />
-      </svg>
-      <span className="orbit-caption">BUILD. TEST. LEVEL UP.</span>
-    </div>
-  );
-}
-
 export default function CommandCenter() {
+  const router = useRouter();
   const {
     workspace,
     setWorkspace,
     user,
+    saveDisplayName,
     owner,
     sharedWorkspaces,
     ready,
@@ -330,9 +280,10 @@ export default function CommandCenter() {
     flush,
   } = useWorkspace();
   const [view, setView] = useState<View>("Overview");
+  const [achievementMotionPaused, setAchievementMotionPaused] = useState(false);
   const [search, setSearch] = useState("");
-  const [priority, setPriority] = useState("All priorities");
-  const [typeFilter, setTypeFilter] = useState("All types");
+  const [priority, setPriority] = useState("");
+  const [typeFilter, setTypeFilter] = useState("");
   const [questProjectFilter, setQuestProjectFilter] = useState("");
   const [mine, setMine] = useState(false);
   const [newStatus, setNewStatus] = useState<Status>("Backlog");
@@ -356,21 +307,41 @@ export default function CommandCenter() {
   }, []);
   const [issueModal, setIssueModal] = useState<Issue | "new" | null>(null);
   const [testModal, setTestModal] = useState<TestCase | "new" | null>(null);
-  const [authModal, setAuthModal] = useState(false);
+  const [modificationToOpen, setModificationToOpen] = useState<string | null>(null);
+  const [deletingTest, setDeletingTest] = useState<TestCase | null>(null);
+  const removeTest = (id: string) => {
+    setWorkspace((w) => deleteTest(w, id));
+    notify(`${id} deleted`);
+  };
+  const [signingOut, setSigningOut] = useState(false);
+  const [confirmSignOut, setConfirmSignOut] = useState(false);
+  // Pending cloud edits are saved first; the entry route then returns to the login page.
+  const signOut = async () => {
+    setSigningOut(true);
+    try {
+      await flush();
+      const result = await supabase?.auth.signOut();
+      if (result?.error) notify(result.error.message);
+    } catch (error) {
+      notify(error instanceof Error ? error.message : "Unable to sign out. Try again.");
+    } finally {
+      setSigningOut(false);
+    }
+  };
   const [help, setHelp] = useState(false);
   const [notifications, setNotifications] = useState(false);
   const [sidebar, setSidebar] = useState(false);
-  const [toast, setToast] = useState("");
   const [listMode, setListMode] = useState(false);
   const [dropColumn, setDropColumn] = useState<Status | null>(null);
-  const [testFilter, setTestFilter] = useState("All tests");
+  const [testFilter, setTestFilter] = useState("");
   const [testProjectFilter, setTestProjectFilter] = useState("");
   const [compact, setCompact] = useState(false);
   const m = metrics(workspace);
-  const profileName =
+  const profileFullName =
     typeof user?.user_metadata?.full_name === "string" && user.user_metadata.full_name.trim()
       ? user.user_metadata.full_name.trim()
-      : (user?.email?.split("@")[0] ?? "Local workspace");
+      : "";
+  const profileName = profileFullName || (user?.email?.split("@")[0] ?? "Local workspace");
   const matchesIdentity = (name: string) =>
     !!user &&
     [profileName, user.email, user.email?.split("@")[0]].some(
@@ -385,30 +356,71 @@ export default function CommandCenter() {
   const testMetrics = metrics({ ...workspace, tests: projectTests });
   const visibleTests = projectTests.filter(
     (test) =>
-      (testFilter === "All tests" || test.status === testFilter) &&
+      (!testFilter || test.status === testFilter) &&
       `${test.title} ${test.id} ${test.suite}`.toLowerCase().includes(search.trim().toLowerCase()),
   );
-  const notify = (message: string) => setToast(message);
-  useEffect(() => {
-    if (!toast) return;
-    const timer = setTimeout(() => setToast(""), 4200);
-    return () => clearTimeout(timer);
-  }, [toast]);
+  // Sonner announces each message politely and dismisses it on its own.
+  const notify = (message: string) => toast(message);
   const navigate = (next: View) => {
     setView(next);
     setSearch("");
     setSidebar(false);
     setNotifications(false);
   };
+  // Changes to a modification card are saved on the modification itself.
+  const updateModification = (
+    id: string,
+    change: Partial<Pick<Modification, "status" | "priority">>,
+  ) => {
+    const modification = modificationForQuest(workspace.modifications, id);
+    if (!modification) return false;
+    if (!ready) return true;
+    setWorkspace((w) => ({
+      ...w,
+      modifications: (w.modifications ?? []).map((entry) =>
+        entry.id === modification.id ? { ...entry, ...change } : entry,
+      ),
+    }));
+    if (change.status && change.status !== modification.status) {
+      const xp = MODIFICATION_XP[change.status];
+      notify(`${modification.module || id} moved to ${change.status}${xp ? ` · ${xp} XP` : ""}`);
+    }
+    if (change.priority) notify(`${modification.module || id} priority set to ${change.priority}`);
+    return true;
+  };
+  const openQuest = (issue: Issue) => {
+    const modification = modificationForQuest(workspace.modifications, issue.id);
+    if (!modification) return setIssueModal(issue);
+    setModificationToOpen(modification.id);
+    navigate("Modification Tracker");
+  };
+  const updatePriority = (id: string, priority: Priority) => {
+    if (!ready) return;
+    if (updateModification(id, { priority })) return;
+    setWorkspace((w) => ({
+      ...w,
+      issues: w.issues.map((issue) => (issue.id === id ? { ...issue, priority } : issue)),
+    }));
+    notify(`${id} priority set to ${priority}`);
+  };
+  // Inline status edits from a quest table; Completed keeps its XP message from updateStatus.
+  const changeStatusInline = (id: string, status: Status) => {
+    if (updateModification(id, { status })) return;
+    updateStatus(id, status);
+    if (status !== "Completed") notify(`${id} moved to ${status}`);
+  };
   const updateStatus = (id: string, status: Status) => {
     if (!ready) return;
     const issue = workspace.issues.find((i) => i.id === id);
     setWorkspace((w) => moveIssue(w, id, status));
-    if (status === "Done" && issue?.status !== "Done")
+    if (status === "Completed" && issue?.status !== "Completed")
       notify(`Quest complete! +${issue?.xp ?? 0} XP earned`);
   };
+  // The Quest Board also shows every modification as a live quest card.
+  const boardIssues = questBoardIssues(workspace);
+  const boardDone = boardIssues.filter((issue) => issue.status === "Completed").length;
   const filtered = filterIssuesByProject(
-    workspace.issues,
+    boardIssues,
     projects,
     view === "Quest board" ? activeQuestProjectFilter : "",
   ).filter(
@@ -416,8 +428,8 @@ export default function CommandCenter() {
       `${i.id} ${i.title} ${i.labels.join(" ")} ${i.assignee}`
         .toLowerCase()
         .includes(search.toLowerCase()) &&
-      (priority === "All priorities" || i.priority === priority) &&
-      (typeFilter === "All types" || i.type === typeFilter) &&
+      (!priority || i.priority === priority) &&
+      (!typeFilter || i.type === typeFilter) &&
       (!mine || !user || matchesIdentity(i.assignee)),
   );
   const downloadJson = (data: string, filename: string) => {
@@ -451,64 +463,19 @@ export default function CommandCenter() {
   function issueRows(issues: Issue[], limit?: number) {
     return (
       <div className="issue-table-wrap">
-        <table className="issue-table">
-          <thead>
-            <tr>
-              <th>PROJECT TITLE</th>
-              <th>PRIORITY</th>
-              <th>STATUS</th>
-              <th>ASSIGNEE</th>
-              <th>REWARD</th>
-              <th>
-                <span className="sr-only">Open</span>
-              </th>
-            </tr>
-          </thead>
-          <tbody>
-            {issues.slice(0, limit ?? issues.length).map((issue) => {
-              const Icon = icons[issue.type];
-              return (
-                <tr key={issue.id} onClick={() => setIssueModal(issue)}>
-                  <td>
-                    <button className="quest-title" onClick={() => setIssueModal(issue)}>
-                      <span className={`type-icon ${issue.type.toLowerCase()}`}>
-                        <Icon size={14} />
-                      </span>
-                      <span>
-                        <small>{issue.id}</small>
-                        <strong>{issue.title}</strong>
-                      </span>
-                    </button>
-                  </td>
-                  <td>
-                    <PriorityBadge priority={issue.priority} />
-                  </td>
-                  <td>
-                    <StatusBadge status={issue.status} />
-                  </td>
-                  <td>
-                    <Avatar name={issue.assignee} />
-                  </td>
-                  <td>
-                    <span className="xp">
-                      <Zap size={12} />
-                      {issue.xp} XP
-                    </span>
-                  </td>
-                  <td>
-                    <ChevronRight size={14} className="muted" />
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
+        <IssueTable
+          issues={issues}
+          limit={limit}
+          onOpen={openQuest}
+          onPriorityChange={updatePriority}
+          onStatusChange={changeStatusInline}
+        />
         {!issues.length && (
-          <div className="empty">
-            <Search size={26} />
-            <h3>No quests found</h3>
-            <p>Try another filter or create your first quest.</p>
-          </div>
+          <EmptyState
+            icon={Search}
+            title={<>No quests found</>}
+            description={<>Try another filter or create your first quest.</>}
+          />
         )}
       </div>
     );
@@ -541,11 +508,11 @@ export default function CommandCenter() {
           </div>
         ))}
         {!rank.length && (
-          <div className="empty">
-            <Users size={24} />
-            <h3>No developers yet</h3>
-            <p>Add project developers or assign a quest to see contributions.</p>
-          </div>
+          <EmptyState
+            icon={Users}
+            title={<>No developers yet</>}
+            description={<>Add project developers or assign a quest to see contributions.</>}
+          />
         )}
         <div className="sample-note">Based on saved developers and quest assignments</div>
       </div>
@@ -575,7 +542,6 @@ export default function CommandCenter() {
                 >
                   <Icon size={18} />
                   <span>{name}</span>
-                  {name === "Quest board" && <span className="nav-count">{m.total - m.done}</span>}
                   {name === "Achievements" && <span className="new-dot" />}
                 </button>
               ))}
@@ -583,6 +549,35 @@ export default function CommandCenter() {
           ))}
         </nav>
         <div className="sidebar-bottom">
+          <div className="sidebar-theme">
+            <span>Color theme</span>
+            <ThemeSwitcher
+              className="text-(--text-muted) hover:bg-(--panel-hover) hover:text-(--accent-base)"
+              variant="ghost"
+            />
+          </div>
+          <div className="mb-3 border-t border-(--border) pt-3">
+            <span className="nav-label">RESOURCES</span>
+            {/* A plain link: /design-system has its own root layout, so this is a full page load. */}
+            <a className={sidebarFooterLink} href="/design-system">
+              <Palette aria-hidden="true" className="shrink-0" size={18} />
+              <span className="min-w-0 truncate">Design system</span>
+              <ArrowUpRight
+                aria-hidden="true"
+                className="ml-auto shrink-0 text-(--text-muted) transition-colors group-hover:text-(--accent-base)"
+                size={14}
+              />
+            </a>
+            <button className={sidebarFooterLink} onClick={() => setHelp(true)}>
+              <CircleHelp aria-hidden="true" className="shrink-0" size={18} />
+              <span className="min-w-0 truncate">Help &amp; getting started</span>
+              <ArrowUpRight
+                aria-hidden="true"
+                className="ml-auto shrink-0 text-(--text-muted) transition-colors group-hover:text-(--accent-base)"
+                size={14}
+              />
+            </button>
+          </div>
           <div className="level-card">
             <div className="level-top">
               <span className="level-icon">
@@ -604,54 +599,78 @@ export default function CommandCenter() {
               </span>
             </div>
           </div>
-          <button className="help-button" onClick={() => setHelp(true)}>
-            <CircleHelp size={17} />
-            Help & getting started
-            <ArrowUpRight size={13} />
-          </button>
-          <button
-            className="profile"
-            onClick={() => (user ? navigate("Settings") : setAuthModal(true))}
-          >
-            <Avatar name={profileName} />
-            <div>
-              <strong>{profileName}</strong>
-              <small>{user ? "Cloud workspace" : "Saved on this device"}</small>
-            </div>
-            <ChevronRight size={14} />
-          </button>
+          <div className="profile">
+            <button
+              className="profile-link"
+              onClick={() => (user ? navigate("Settings") : router.push("/login"))}
+            >
+              <Avatar name={profileName} />
+              <div>
+                <strong>{profileName}</strong>
+                <small>{user ? "Cloud workspace" : "Saved on this device"}</small>
+              </div>
+              <ChevronRight size={14} />
+            </button>
+            {user && (
+              <IconButton
+                ariaLabel={`Log out ${profileName}`}
+                className="shrink-0 text-(--text-muted) hover:bg-(--panel-hover) hover:text-(--accent-base)"
+                disabled={signingOut}
+                icon={LogOut}
+                label="Log out"
+                onClick={() => setConfirmSignOut(true)}
+              />
+            )}
+          </div>
         </div>
       </aside>
+      <ConfirmDialog
+        open={confirmSignOut}
+        title="Log out of VEXA?"
+        description="Unsaved changes are saved to the cloud first. Sign in again to return to this workspace."
+        confirmLabel={signingOut ? "Logging out…" : "Log out"}
+        onCancel={() => setConfirmSignOut(false)}
+        onConfirm={() => {
+          setConfirmSignOut(false);
+          void signOut();
+        }}
+      />
       <div className="main-shell">
         <header className="topbar">
           <div className="breadcrumbs">
-            <button
-              className="icon-button mobile-menu"
+            <Button
+              variant="ghost"
+              size="icon"
+              className="min-[761px]:hidden"
               onClick={() => setSidebar(true)}
               aria-label="Open navigation"
             >
               <Menu size={21} />
-            </button>
+            </Button>
             <span className="breadcrumb-home">Workspace</span>
             <ChevronRight size={13} />
             <strong>{view}</strong>
           </div>
           <div className="topbar-actions">
-            <label className="global-search">
-              <Search size={15} />
-              <input
+            <InputGroup className="global-search-field h-9 w-64 max-w-full bg-glass">
+              <InputGroupAddon>
+                <Search aria-hidden="true" />
+              </InputGroupAddon>
+              <InputGroupInput
                 ref={searchInput}
                 aria-label="Search workspace"
                 placeholder={
-                  view === "Modification Tracker"
-                    ? "Search modifications…"
-                    : view === "Deployment Tracker"
-                      ? "Search deployments…"
-                      : view === "Project Maintenance"
-                        ? "Search projects…"
-                        : view === "Test lab"
-                          ? "Search test cases…"
-                          : "Search quests…"
+                  view === "Activity Calendar"
+                    ? "Search activities…"
+                    : view === "Modification Tracker"
+                      ? "Search modifications…"
+                      : view === "Deployment Tracker"
+                        ? "Search deployments…"
+                        : view === "Project Maintenance"
+                          ? "Search projects…"
+                          : view === "Test lab"
+                            ? "Search test cases…"
+                            : "Search quests…"
                 }
                 value={search}
                 onChange={(e) => {
@@ -661,6 +680,7 @@ export default function CommandCenter() {
                       "Quest board",
                       "Test lab",
                       "Overview",
+                      "Activity Calendar",
                       "Project Maintenance",
                       "Deployment Tracker",
                       "Modification Tracker",
@@ -669,22 +689,26 @@ export default function CommandCenter() {
                     setView("Quest board");
                 }}
               />
-              <kbd>/</kbd>
-            </label>
+              <InputGroupAddon align="inline-end">
+                <Kbd>/</Kbd>
+              </InputGroupAddon>
+            </InputGroup>
             <span className="demo-badge">
               <i />
               {user ? "CLOUD" : "LOCAL MODE"}
             </span>
             <div className="notification-wrap">
-              <button
-                className="icon-button notification-button"
+              <Button
+                variant="ghost"
+                size="icon"
+                className="relative notification-button"
                 onClick={() => setNotifications(!notifications)}
                 aria-label="Recent activity"
                 aria-expanded={notifications}
               >
                 <Bell size={19} />
                 {workspace.activity.length > 0 && <i />}
-              </button>
+              </Button>
               {notifications && (
                 <div className="notification-popover">
                   <h3>Latest activity</h3>
@@ -697,92 +721,74 @@ export default function CommandCenter() {
                   {!workspace.activity.length && (
                     <p>No activity yet. Your next quest starts here.</p>
                   )}
-                  <button
-                    className="text-button"
+                  <Button
+                    variant="link"
+                    className="h-auto p-0"
                     onClick={() => {
                       setNotifications(false);
                       navigate("Reports");
                     }}
                   >
                     View activity <ArrowRight size={13} />
-                  </button>
+                  </Button>
                 </div>
               )}
             </div>
             <div className="topbar-divider" />
+            {/* Below 1200px the sidebar carries the theme control instead. */}
+            <ThemeSwitcher className="max-[1200px]:hidden" />
+            {!user && (
+              <Button variant="outline" onClick={() => router.push("/login")}>
+                <LogIn size={14} />
+                Sign in
+              </Button>
+            )}
             <Avatar name={profileName} />
           </div>
         </header>
         <main>
+          {/* Overview owns its welcome heading; other views use the shared page heading. */}
+          {view !== "Overview" && (
           <div className={`page-heading ${view === "Test lab" ? "test-lab-heading" : ""}`}>
             <div>
               <div className="page-eyebrow">
                 <span className="tiny-cross">✦</span>{" "}
-                {view === "Overview" ? "YOUR MISSION CONTROL" : "VEXA QA WORKSPACE"}
+                VEXA QA WORKSPACE
               </div>
               <h1>
-                {view === "Overview" ? (
-                  <>
-                    Let’s build something <span>great.</span>
-                  </>
-                ) : (
-                  view
-                )}
+                {view}
               </h1>
               <p>{descriptions[view]}</p>
             </div>
             <div className={`heading-actions ${view === "Test lab" ? "test-lab-actions" : ""}`}>
               {view === "Test lab" && (
-                <select
-                  className="test-project-filter"
-                  aria-label="Filter test cases by project"
-                  disabled={!ready}
+                <FilterCombobox
+                  allLabel="All projects"
+                  className="w-52"
+                  label="Filter test cases by project"
+                  options={projectOptions(projects)}
                   value={activeTestProjectFilter}
-                  onChange={(event) => setTestProjectFilter(event.target.value)}
-                >
-                  <option value="">All projects</option>
-                  {projects.map((project) => (
-                    <option key={project.id} value={project.id}>
-                      {project.name}
-                    </option>
-                  ))}
-                </select>
+                  onChange={setTestProjectFilter}
+                />
               )}
-              {view === "Overview" && (
-                <span className="sprint-chip">
-                  <span className="live-dot" />
-                  All saved records
-                </span>
-              )}
-              {["Overview", "Quest board"].includes(view) ? (
-                <button
+              {view === "Test lab" ? (
+                <Button
                   disabled={!ready}
-                  className="button primary"
-                  onClick={() => {
-                    setNewStatus("Backlog");
-                    setIssueModal("new");
-                  }}
-                >
-                  <Plus size={17} />
-                  Create quest
-                </button>
-              ) : view === "Test lab" ? (
-                <button
-                  disabled={!ready}
-                  className="button primary"
+
                   onClick={() => setTestModal("new")}
                 >
                   <Plus size={17} />
-                  New test case
-                </button>
+                  Add test case
+                </Button>
               ) : view === "Reports" ? (
-                <button className="button secondary" onClick={exportWorkspace}>
+                <Button variant="outline" onClick={exportWorkspace}>
                   <Download size={16} />
                   Export data
-                </button>
+                </Button>
               ) : null}
             </div>
           </div>
+          )}
           {error && (
             <div className="error-banner">
               <Shield size={18} />
@@ -791,11 +797,7 @@ export default function CommandCenter() {
               </span>
               <button onClick={exportWorkspace}>Export</button>
               <button onClick={() => void reload()}>Reload</button>
-              {user && (
-                <button onClick={() => void supabase?.auth.signOut()}>
-                  Return to local workspace
-                </button>
-              )}
+              {user && <button onClick={() => void supabase?.auth.signOut()}>Sign out</button>}
             </div>
           )}
           {!ready && !error && (
@@ -808,22 +810,29 @@ export default function CommandCenter() {
             {view === "Overview" && (
               <WorkspaceDashboard
                 workspace={workspace}
+                userName={user ? profileName : undefined}
                 search={search}
-                heroArt={<OrbitArt />}
                 renderIssues={issueRows}
                 renderContributors={leaderboard}
                 onNavigate={navigate}
-                onCreateQuest={() => {
-                  setNewStatus("Backlog");
-                  setIssueModal("new");
-                }}
                 onCriticalQuests={() => {
                   navigate("Quest board");
                   setPriority("Critical");
-                  setTypeFilter("All types");
+                  setTypeFilter("");
                   setQuestProjectFilter("");
                   setMine(false);
                 }}
+              />
+            )}
+            {view === "Activity Calendar" && (
+              <ActivityCalendarScreen
+                events={workspace.calendarEvents ?? []}
+                projects={projects}
+                search={search}
+                disabled={!ready || !!error}
+                onChange={(calendarEvents) => setWorkspace((w) => ({ ...w, calendarEvents }))}
+                onNotice={notify}
+                onManageProjects={() => navigate("Project Maintenance")}
               />
             )}
             {view === "Quest board" && (
@@ -836,7 +845,8 @@ export default function CommandCenter() {
                     </span>
                     <h3>{workspace.sprintGoal}</h3>
                     <p>
-                      {m.done} completed · {m.total - m.done} to go · {m.xp} XP earned
+                      {boardDone} completed · {boardIssues.length - boardDone} to go · {m.xp} XP
+                      earned
                     </p>
                   </div>
                   <div className="board-squad">
@@ -845,47 +855,39 @@ export default function CommandCenter() {
                         <Avatar key={t.name} name={t.name} />
                       ))}
                     </div>
-                    <span>THE QA SQUAD</span>
+                    <span>DEVELOPERS</span>
                   </div>
                 </div>
                 <div className="filter-bar">
                   <div className="filter-controls">
-                    <Filter size={15} className="muted" />
-                    <select
-                      aria-label="Filter by priority"
+                    <Filter aria-hidden="true" size={15} className="muted" />
+                    <FilterCombobox
+                      allLabel="All priorities"
+                      label="Filter by priority"
+                      options={valueOptions(PRIORITIES)}
                       value={priority}
-                      onChange={(e) => setPriority(e.target.value)}
-                    >
-                      <option>All priorities</option>
-                      {PRIORITIES.map((p) => (
-                        <option key={p}>{p}</option>
-                      ))}
-                    </select>
-                    <select
-                      aria-label="Filter by type"
+                      onChange={setPriority}
+                    />
+                    <FilterCombobox
+                      allLabel="All types"
+                      label="Filter by type"
+                      options={valueOptions(TYPES)}
                       value={typeFilter}
-                      onChange={(e) => setTypeFilter(e.target.value)}
-                    >
-                      <option>All types</option>
-                      {TYPES.map((t) => (
-                        <option key={t}>{t}</option>
-                      ))}
-                    </select>
-                    <select
-                      className="quest-project-filter"
-                      aria-label="Filter by project title"
+                      onChange={setTypeFilter}
+                    />
+                    <FilterCombobox
+                      allLabel="All project titles"
+                      className="w-52"
+                      label="Filter by project title"
+                      options={projectOptions(projects)}
                       value={activeQuestProjectFilter}
-                      onChange={(event) => setQuestProjectFilter(event.target.value)}
-                    >
-                      <option value="">All project titles</option>
-                      {projects.map((project) => (
-                        <option key={project.id} value={project.id}>
-                          {project.name}
-                        </option>
-                      ))}
-                    </select>
-                    <button
-                      className={`button small ${mine ? "selected-filter" : "ghost"}`}
+                      onChange={setQuestProjectFilter}
+                    />
+                    <Button
+                      type="button"
+                      className="h-9"
+                      variant={mine ? "secondary" : "outline"}
+                      aria-pressed={mine}
                       disabled={!user}
                       title={
                         !user
@@ -895,24 +897,22 @@ export default function CommandCenter() {
                       onClick={() => setMine(!mine)}
                     >
                       Assigned to me
-                    </button>
-                    {(priority !== "All priorities" ||
-                      typeFilter !== "All types" ||
-                      activeQuestProjectFilter ||
-                      mine ||
-                      search) && (
-                      <button
-                        className="text-button"
+                    </Button>
+                    {(priority || typeFilter || activeQuestProjectFilter || mine || search) && (
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="ghost"
                         onClick={() => {
-                          setPriority("All priorities");
-                          setTypeFilter("All types");
+                          setPriority("");
+                          setTypeFilter("");
                           setQuestProjectFilter("");
                           setMine(false);
                           setSearch("");
                         }}
                       >
-                        Clear filters <X size={12} />
-                      </button>
+                        Clear filters <X aria-hidden="true" />
+                      </Button>
                     )}
                   </div>
                   <div className="view-toggle">
@@ -947,20 +947,21 @@ export default function CommandCenter() {
                         onDragLeave={() => setDropColumn(null)}
                         onDrop={(e) => {
                           e.preventDefault();
-                          updateStatus(e.dataTransfer.getData("text/plain"), status);
+                          const id = e.dataTransfer.getData("text/plain");
+                          if (!updateModification(id, { status })) updateStatus(id, status);
                           setDropColumn(null);
                         }}
                       >
                         <div className="column-heading">
                           <StatusBadge status={status} />
-                          <span>{filtered.filter((i) => i.status === status).length}</span>
-                          <button
+                          <Button
                             aria-label={`Add quest to ${status}`}
-                            className="icon-button"
+                            variant="ghost"
+                            size="icon"
                             onClick={() => setIssueModal("new")}
                           >
                             <Plus size={15} />
-                          </button>
+                          </Button>
                         </div>
                         <div className="column-cards">
                           {filtered
@@ -976,7 +977,7 @@ export default function CommandCenter() {
                                   onDragEnd={() => setDropColumn(null)}
                                   className="quest-card"
                                   key={issue.id}
-                                  onClick={() => setIssueModal(issue)}
+                                  onClick={() => openQuest(issue)}
                                 >
                                   <div className="quest-card-top">
                                     <span className={`type-icon ${issue.type.toLowerCase()}`}>
@@ -1013,7 +1014,8 @@ export default function CommandCenter() {
                 )}
                 <p className="board-help">
                   <CircleHelp size={13} />
-                  Drag quests between columns, or open a quest to update its status.
+                  Drag quests between columns, or open a quest to update its status. Cards tagged
+                  Modification come from the Modification Tracker and update it directly.
                 </p>
               </>
             )}
@@ -1025,6 +1027,9 @@ export default function CommandCenter() {
                 onChange={(modifications) => setWorkspace((w) => ({ ...w, modifications }))}
                 onNotice={notify}
                 onManageProjects={() => navigate("Project Maintenance")}
+                openId={modificationToOpen ?? undefined}
+                onOpened={() => setModificationToOpen(null)}
+                workspaceOwner={owner}
               />
             )}
             {view === "Test lab" && (
@@ -1055,21 +1060,20 @@ export default function CommandCenter() {
                 <Panel
                   title="Regression library"
                   action={
-                    <select
+                    <FilterCombobox
+                      allLabel="All tests"
+                      label="Filter tests"
+                      options={valueOptions(TEST_STATUSES)}
                       value={testFilter}
-                      aria-label="Filter tests"
-                      onChange={(e) => setTestFilter(e.target.value)}
-                    >
-                      {["All tests", ...TEST_STATUSES].map((v) => (
-                        <option key={v}>{v}</option>
-                      ))}
-                    </select>
+                      onChange={setTestFilter}
+                    />
                   }
                 >
                   <div className="test-list">
                     <TestCaseTable
                       tests={visibleTests}
                       onEdit={setTestModal}
+                      onDelete={setDeletingTest}
                       onStatusChange={(id, status) => {
                         setWorkspace((w) => runTest(w, id, status));
                         notify(
@@ -1078,24 +1082,27 @@ export default function CommandCenter() {
                       }}
                     />
                     {!visibleTests.length && (
-                      <div className="empty">
-                        <FlaskConical size={28} />
-                        <h3>No matching test cases</h3>
-                        <p>Add a test case or adjust your project, status, or search filters.</p>
-                        {(activeTestProjectFilter || testFilter !== "All tests" || search) && (
-                          <button
+                      <EmptyState
+                        icon={FlaskConical}
+                        title={<>No matching test cases</>}
+                        description={
+                          <>Add a test case or adjust your project, status, or search filters.</>
+                        }
+                      >
+                        {(activeTestProjectFilter || testFilter || search) && (
+                          <Button
                             type="button"
-                            className="button secondary"
+                            variant="outline"
                             onClick={() => {
                               setTestProjectFilter("");
-                              setTestFilter("All tests");
+                              setTestFilter("");
                               setSearch("");
                             }}
                           >
                             Clear filters
-                          </button>
+                          </Button>
                         )}
-                      </div>
+                      </EmptyState>
                     )}
                   </div>
                 </Panel>
@@ -1162,7 +1169,7 @@ export default function CommandCenter() {
                     <div className="bar-chart">
                       {PRIORITIES.map((p) => {
                         const count = workspace.issues.filter(
-                          (i) => i.priority === p && i.status !== "Done",
+                          (i) => i.priority === p && i.status !== "Completed",
                         ).length;
                         return (
                           <div className="chart-row" key={p}>
@@ -1213,11 +1220,11 @@ export default function CommandCenter() {
                       </div>
                     ))}
                     {!workspace.activity.length && (
-                      <div className="empty">
-                        <Activity size={24} />
-                        <h3>Your story starts here</h3>
-                        <p>Quest updates and test results will appear here.</p>
-                      </div>
+                      <EmptyState
+                        icon={Activity}
+                        title={<>Your story starts here</>}
+                        description={<>Quest updates and test results will appear here.</>}
+                      />
                     )}
                   </div>
                 </Panel>
@@ -1260,23 +1267,34 @@ export default function CommandCenter() {
                     <h2>A little progress. A lot of possibility.</h2>
                     <p>Unlock milestones by completing quests and recording test results.</p>
                   </div>
-                  <Trophy size={48} className="gold" strokeWidth={1.2} />
+                  <div className="flex shrink-0 items-center gap-3">
+                    <IconButton
+                      className="motion-reduce:hidden"
+                      icon={achievementMotionPaused ? Play : Pause}
+                      label={achievementMotionPaused ? "Play achievement animations" : "Pause achievement animations"}
+                      onClick={() => setAchievementMotionPaused((paused) => !paused)}
+                    />
+                    <AchievementIcon
+                      icon={Trophy}
+                      size={48}
+                      className="size-14 text-status-attention max-sm:hidden"
+                      paused={achievementMotionPaused}
+                    />
+                  </div>
                 </div>
                 <div className="achievement-grid">
                   {[
                     {
-                      title: "First blood",
-                      description: "Complete your first bug quest.",
+                      ...firstBloodAchievement(workspace),
                       icon: Bug,
-                      count: workspace.issues.filter((i) => i.type === "Bug" && i.status === "Done")
-                        .length,
-                      goal: 1,
+                      motion: "scuttle" as const,
                       color: "orange",
                     },
                     {
                       title: "Quest conqueror",
                       description: "Complete 10 quests in your workspace.",
                       icon: Swords,
+                      motion: "swing" as const,
                       count: m.done,
                       goal: 10,
                       color: "mint",
@@ -1285,6 +1303,7 @@ export default function CommandCenter() {
                       title: "Test pilot",
                       description: "Record results for 10 test cases.",
                       icon: FlaskConical,
+                      motion: "tilt" as const,
                       count: m.run,
                       goal: 10,
                       color: "purple",
@@ -1293,6 +1312,7 @@ export default function CommandCenter() {
                       title: "Power surge",
                       description: "Earn a total of 1,000 squad XP.",
                       icon: Zap,
+                      motion: "charge" as const,
                       count: m.xp,
                       goal: 1000,
                       color: "yellow",
@@ -1301,6 +1321,7 @@ export default function CommandCenter() {
                       title: "Green guardian",
                       description: "Have 10 passing test cases.",
                       icon: ShieldCheck,
+                      motion: "shield" as const,
                       count: m.passed,
                       goal: 10,
                       color: "mint",
@@ -1309,6 +1330,7 @@ export default function CommandCenter() {
                       title: "Legendary release",
                       description: "Complete 25 quests. Keep going.",
                       icon: Trophy,
+                      motion: "float" as const,
                       count: m.done,
                       goal: 25,
                       color: "yellow",
@@ -1318,9 +1340,13 @@ export default function CommandCenter() {
                       className={`achievement-card ${a.count >= a.goal ? "unlocked" : ""}`}
                       key={a.title}
                     >
-                      <span className={`achievement-icon ${a.color}`}>
-                        <a.icon size={30} strokeWidth={1.4} />
-                      </span>
+                      <AchievementIcon
+                        icon={a.icon}
+                        motion={a.motion}
+                        className={`achievement-icon ${a.color}`}
+                        unlocked={a.count >= a.goal}
+                        paused={achievementMotionPaused}
+                      />
                       <span className={`unlock-badge ${a.count >= a.goal ? "earned" : ""}`}>
                         {a.count >= a.goal ? (
                           <>
@@ -1428,7 +1454,10 @@ export default function CommandCenter() {
                         ))}
                       </ul>
                       <a
-                        className="button secondary"
+                        className={buttonVariants({
+                          variant: "outline",
+                          className: "w-full justify-between",
+                        })}
                         href={i.link}
                         target="_blank"
                         rel="noreferrer"
@@ -1450,9 +1479,9 @@ export default function CommandCenter() {
                       and deployment steps.
                     </p>
                   </div>
-                  <button className="button secondary" onClick={() => setHelp(true)}>
+                  <Button variant="outline" onClick={() => setHelp(true)}>
                     Setup overview <ArrowRight size={14} />
-                  </button>
+                  </Button>
                 </div>
                 <div className="info-note">
                   <CircleHelp size={16} />
@@ -1481,6 +1510,16 @@ export default function CommandCenter() {
             )}
             {view === "Settings" && (
               <div className="settings-layout">
+                {user && (
+                  <Panel title="Your profile" eyebrow="MAKE IT PERSONAL">
+                    <ProfileSettings
+                      key={user.id}
+                      initialName={profileFullName}
+                      onSave={saveDisplayName}
+                      onNotice={notify}
+                    />
+                  </Panel>
+                )}
                 <Panel title="Workspace details" eyebrow="MAKE IT YOURS">
                   <WorkspaceSettings
                     key={owner ?? "local"}
@@ -1507,22 +1546,19 @@ export default function CommandCenter() {
                         : "Your projects and QA records are saved in this browser. Configure Supabase and sign in to share a cloud workspace and see live updates from teammates."}
                     </p>
                     {user ? (
-                      <button
-                        className="button secondary"
-                        onClick={async () => {
-                          const result = await supabase?.auth.signOut();
-                          if (result?.error) notify(result.error.message);
-                          else notify("Signed out. Back to your local workspace.");
-                        }}
+                      <Button
+                        variant="outline"
+                        disabled={signingOut}
+                        onClick={() => setConfirmSignOut(true)}
                       >
                         <LogOut size={15} />
-                        Sign out
-                      </button>
+                        {signingOut ? "Signing out…" : "Sign out"}
+                      </Button>
                     ) : (
-                      <button className="button secondary" onClick={() => setAuthModal(true)}>
+                      <Button variant="outline" onClick={() => router.push("/login")}>
                         <LogIn size={15} />
-                        Connect account
-                      </button>
+                        Sign in / Create account
+                      </Button>
                     )}
                     <div className="settings-divider" />
                     <h3>Keep a copy of your progress</h3>
@@ -1530,34 +1566,34 @@ export default function CommandCenter() {
                       Download your projects, quests, test cases, modifications, deployments, and
                       activity as a JSON backup.
                     </p>
-                    <button className="button secondary" onClick={exportWorkspace}>
+                    <Button variant="outline" onClick={exportWorkspace}>
                       <Download size={15} />
                       Export workspace
-                    </button>
+                    </Button>
                     {!user && hasLocalBackup && (
                       <div className="dashboard-backup-action">
                         <p>
                           Your original local workspace was preserved before untouched sample
                           records were removed.
                         </p>
-                        <button className="button secondary" onClick={exportOriginalLocalWorkspace}>
+                        <Button variant="outline" onClick={exportOriginalLocalWorkspace}>
                           <Download size={15} />
                           Export pre-cleanup backup
-                        </button>
+                        </Button>
                       </div>
                     )}
                     <div className="settings-divider" />
-                    <label className="toggle-label">
-                      <div>
-                        <strong>Compact layout</strong>
-                        <span>Use less space between quest rows.</span>
-                      </div>
-                      <input
-                        type="checkbox"
+                    <Field orientation="horizontal" className="justify-between">
+                      <FieldContent>
+                        <FieldLabel htmlFor="settings-compact">Compact layout</FieldLabel>
+                        <FieldDescription>Use less space between quest rows.</FieldDescription>
+                      </FieldContent>
+                      <Switch
+                        id="settings-compact"
                         checked={compact}
-                        onChange={(e) => setCompact(e.target.checked)}
+                        onCheckedChange={(checked) => setCompact(checked)}
                       />
-                    </label>
+                    </Field>
                   </div>
                 </Panel>
                 {user && owner && (
@@ -1610,7 +1646,7 @@ export default function CommandCenter() {
                   id: crypto.randomUUID(),
                   text: isNew
                     ? `${issue.id} created: ${issue.title}`
-                    : `${issue.id} updated${issue.status === "Done" && !isNew && issueModal.status !== "Done" ? ` · ${issue.xp} XP earned` : ""}`,
+                    : `${issue.id} updated${issue.status === "Completed" && !isNew && issueModal.status !== "Completed" ? ` · ${issue.xp} XP earned` : ""}`,
                   date: new Date().toISOString(),
                   kind: "issue" as const,
                 },
@@ -1665,9 +1701,23 @@ export default function CommandCenter() {
             setTestModal(null);
             notify(`${id}: ${status} result recorded`);
           }}
+          onDelete={(id) => {
+            removeTest(id);
+            setTestModal(null);
+          }}
         />
       )}
-      {authModal && <AuthDialog onClose={() => setAuthModal(false)} notify={notify} />}
+      <ConfirmDialog
+        open={Boolean(deletingTest)}
+        title={`Delete ${deletingTest?.id ?? "this test case"}?`}
+        description={`This removes the ${deletingTest?.title ?? ""} test case, its steps, and its last result.`}
+        confirmLabel="Delete test case"
+        onCancel={() => setDeletingTest(null)}
+        onConfirm={() => {
+          if (deletingTest) removeTest(deletingTest.id);
+          setDeletingTest(null);
+        }}
+      />
       {help && (
         <Modal
           title="Welcome to your command center."
@@ -1720,54 +1770,16 @@ export default function CommandCenter() {
                 </p>
               </div>
             </div>
-            <button className="button primary" onClick={() => setHelp(false)}>
+            <Button onClick={() => setHelp(false)}>
               Let’s get started <ArrowRight size={15} />
-            </button>
+            </Button>
           </div>
         </Modal>
-      )}
-      {toast && (
-        <div className="toast" role="status">
-          <CheckCircle2 size={18} />
-          <span>{toast}</span>
-          <button aria-label="Dismiss notification" onClick={() => setToast("")}>
-            <X size={14} />
-          </button>
-        </div>
       )}
     </div>
   );
 }
 
-function Stat({
-  label,
-  value,
-  icon: Icon,
-  color,
-  detail,
-}: {
-  label: string;
-  value: string | number;
-  icon: LucideIcon;
-  color: string;
-  detail: string;
-}) {
-  return (
-    <section className="stat-card">
-      <div className="stat-top">
-        <span>{label}</span>
-        <span className={`stat-icon ${color}`}>
-          <Icon size={17} />
-        </span>
-      </div>
-      <strong className="stat-value">{value}</strong>
-      <div className="stat-detail">
-        <span className={`detail-dot ${color}`} />
-        {detail}
-      </div>
-    </section>
-  );
-}
 function TriangleIcon({ size = 24 }: { size?: number }) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
@@ -1850,82 +1862,86 @@ function IssueDialog({
       onClose={onClose}
       wide
     >
-      <form className="dialog-form" onSubmit={submit}>
-        <label>
-          Project Title
-          <select
-            autoFocus
-            required
-            value={projectId}
-            onChange={(event) => setProjectId(event.target.value)}
-          >
-            <option value="" disabled>
-              Select a project name
-            </option>
-            {!isNew && !linkedProject && (
-              <option value="__saved__" disabled>
-                {issue.title} (existing title)
-              </option>
-            )}
-            {projects.map((project) => (
-              <option key={project.id} value={project.id}>
-                {project.name}
-              </option>
-            ))}
-          </select>
-          <small>Project names are maintained in Manage → Project Maintenance.</small>
-        </label>
+      <form className="flex flex-col gap-4" onSubmit={submit}>
+        <OptionCombobox
+          id="issue-project"
+          label="Project title"
+          options={[
+            ...(!isNew && !linkedProject
+              ? [{ value: "__saved__", label: `${issue.title} (existing title)` }]
+              : []),
+            ...projectOptions(projects),
+          ]}
+          placeholder="Select a project name"
+          description="Project names are maintained in Manage → Project Maintenance."
+          value={projectId}
+          onChange={setProjectId}
+        />
         {!projects.length && (
-          <div className="info-note">
-            <span>Add a project in Project Maintenance to select its name here.</span>
-            <button type="button" className="text-button" onClick={onManageProjects}>
-              Add project <ArrowRight size={13} />
-            </button>
-          </div>
+          <Alert>
+            <AlertDescription className="flex flex-wrap items-center gap-2">
+              Add a project in Project Maintenance to select its name here.
+              <Button
+                type="button"
+                variant="link"
+                className="h-auto p-0"
+                onClick={onManageProjects}
+              >
+                Add project <ArrowRight aria-hidden="true" />
+              </Button>
+            </AlertDescription>
+          </Alert>
         )}
-        <label>
-          Description
-          <textarea
+        <Field>
+          <FieldLabel htmlFor="issue-description">Description</FieldLabel>
+          <Textarea
+            id="issue-description"
             rows={4}
-            maxLength={5000}
             placeholder="Add context, reproduction steps, or acceptance criteria…"
             value={description}
             onChange={(e) => setDescription(e.target.value)}
           />
-        </label>
-        <div className="form-grid">
-          <label>
-            Quest type
-            <select value={type} onChange={(e) => setType(e.target.value as Issue["type"])}>
-              {TYPES.map((t) => (
-                <option key={t}>{t}</option>
-              ))}
-            </select>
-          </label>
-          <label>
-            Priority
-            <select value={priority} onChange={(e) => setPriority(e.target.value as Priority)}>
-              {PRIORITIES.map((p) => (
-                <option key={p}>{p}</option>
-              ))}
-            </select>
-          </label>
-          <label>
-            Status
-            <select value={status} onChange={(e) => setStatus(e.target.value as Status)}>
-              {STATUSES.map((s) => (
-                <option key={s}>{s}</option>
-              ))}
-            </select>
-          </label>
-          <label>
-            Assignee
-            <input readOnly value={assignee} placeholder="Select a project first" />
-            <small>Filled from the project's Developer in Project Maintenance.</small>
-          </label>
-          <label>
-            Reward (XP)
-            <input
+        </Field>
+        <FieldGroup className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          <OptionCombobox
+            id="issue-type"
+            label="Quest type"
+            options={valueOptions(TYPES)}
+            placeholder="Select a type"
+            value={type}
+            onChange={(value) => setType(value as Issue["type"])}
+          />
+          <OptionCombobox
+            id="issue-priority"
+            label="Priority"
+            options={valueOptions(PRIORITIES)}
+            placeholder="Select a priority"
+            value={priority}
+            onChange={(value) => setPriority(value as Priority)}
+          />
+          <OptionCombobox
+            id="issue-status"
+            label="Status"
+            options={valueOptions(STATUSES)}
+            placeholder="Select a status"
+            value={status}
+            onChange={(value) => setStatus(value as Status)}
+          />
+          <Field>
+            <FieldLabel htmlFor="issue-assignee">Assignee</FieldLabel>
+            <Input
+              id="issue-assignee"
+              readOnly
+              className="bg-muted text-muted-foreground"
+              value={assignee}
+              placeholder="Select a project first"
+            />
+            <FieldDescription>Filled from the project's Developer.</FieldDescription>
+          </Field>
+          <Field>
+            <FieldLabel htmlFor="issue-xp">Reward (XP)</FieldLabel>
+            <Input
+              id="issue-xp"
               type="number"
               min={0}
               max={1000}
@@ -1934,37 +1950,50 @@ function IssueDialog({
               value={xp}
               onChange={(e) => setXp(Number(e.target.value))}
             />
-          </label>
-          <label>
-            Labels <small>(comma separated)</small>
-            <input
-              maxLength={120}
+          </Field>
+          <Field>
+            <FieldLabel htmlFor="issue-labels">
+              Labels <span className="font-normal text-muted-foreground">(comma separated)</span>
+            </FieldLabel>
+            <Input
+              id="issue-labels"
               placeholder="Checkout, API"
               value={labels}
               onChange={(e) => setLabels(e.target.value)}
             />
-          </label>
-        </div>
-        <div className="modal-footer">
+          </Field>
+        </FieldGroup>
+        <DialogFooter className="mt-2 sm:items-center">
           {!isNew && (
-            <button
+            <Button
               type="button"
-              className="text-button danger"
-              onClick={() => (confirmDelete ? onDelete(issue.id) : setConfirmDelete(true))}
+              variant="destructive"
+              className="sm:mr-auto"
+              onClick={() => setConfirmDelete(true)}
             >
-              {confirmDelete ? "Confirm delete quest" : "Delete quest"}
-            </button>
+              <Trash2 aria-hidden="true" />
+              Delete quest
+            </Button>
           )}
-          <span className="flex-spacer" />
-          <button type="button" className="button secondary" onClick={onClose}>
+          <Button type="button" variant="outline" onClick={onClose}>
             Cancel
-          </button>
-          <button type="submit" className="button primary" disabled={isNew && !selectedProject}>
-            <Check size={15} />
+          </Button>
+          <Button type="submit" disabled={isNew && !selectedProject}>
+            <Check aria-hidden="true" />
             {isNew ? "Create quest" : "Save quest"}
-          </button>
-        </div>
+          </Button>
+        </DialogFooter>
       </form>
+      {!isNew && (
+        <ConfirmDialog
+          open={confirmDelete}
+          title={`Delete quest ${issue.id}?`}
+          description="The quest and its details are removed from this workspace."
+          confirmLabel="Delete quest"
+          onCancel={() => setConfirmDelete(false)}
+          onConfirm={() => onDelete(issue.id)}
+        />
+      )}
     </Modal>
   );
 }
@@ -1977,6 +2006,7 @@ function TestDialog({
   onClose,
   onSave,
   onResult,
+  onDelete,
 }: {
   test: TestCase | "new";
   initialProjectId?: string;
@@ -1985,8 +2015,10 @@ function TestDialog({
   onClose: () => void;
   onSave: (test: TestCase) => void;
   onResult: (id: string, status: TestCase["status"]) => void;
+  onDelete: (id: string) => void;
 }) {
   const isNew = test === "new";
+  const [confirmDelete, setConfirmDelete] = useState(false);
   const linkedProject = isNew
     ? undefined
     : projects.find((project) =>
@@ -2008,7 +2040,7 @@ function TestDialog({
       wide
     >
       <form
-        className="dialog-form"
+        className="flex flex-col gap-4"
         onSubmit={(e) => {
           e.preventDefault();
           if (isNew && !selectedProject) return;
@@ -2025,245 +2057,132 @@ function TestDialog({
           });
         }}
       >
-        <label>
-          Test title (Project Name)
-          <select
-            autoFocus
-            required
-            value={projectId}
-            onChange={(e) => setProjectId(e.target.value)}
-          >
-            <option value="" disabled>
-              Select a project name
-            </option>
-            {!isNew && !linkedProject && (
-              <option value="__saved__" disabled>
-                {test.title} (existing title)
-              </option>
-            )}
-            {projects.map((project) => (
-              <option key={project.id} value={project.id}>
-                {project.name}
-              </option>
-            ))}
-          </select>
-          <small>Project names are maintained in Manage → Project Maintenance.</small>
-        </label>
+        <OptionCombobox
+          id="test-project"
+          label="Test title (Project name)"
+          options={[
+            ...(!isNew && !linkedProject
+              ? [{ value: "__saved__", label: `${test.title} (existing title)` }]
+              : []),
+            ...projectOptions(projects),
+          ]}
+          placeholder="Select a project name"
+          description="Project names are maintained in Manage → Project Maintenance."
+          value={projectId}
+          onChange={setProjectId}
+        />
         {!projects.length && (
-          <div className="info-note">
-            <span>Add a project in Project Maintenance to select its name here.</span>
-            <button type="button" className="text-button" onClick={onManageProjects}>
-              Add project <ArrowRight size={13} />
-            </button>
-          </div>
+          <Alert>
+            <AlertDescription className="flex flex-wrap items-center gap-2">
+              Add a project in Project Maintenance to select its name here.
+              <Button
+                type="button"
+                variant="link"
+                className="h-auto p-0"
+                onClick={onManageProjects}
+              >
+                Add project <ArrowRight aria-hidden="true" />
+              </Button>
+            </AlertDescription>
+          </Alert>
         )}
-        <label>
-          Module
-          <input required maxLength={60} value={suite} onChange={(e) => setSuite(e.target.value)} />
-        </label>
-        <label>
-          Steps to execute
-          <textarea
+        <Field>
+          <FieldLabel htmlFor="test-module">Module</FieldLabel>
+          <Input
+            id="test-module"
+            required
+            value={suite}
+            onChange={(e) => setSuite(e.target.value)}
+          />
+        </Field>
+        <Field>
+          <FieldLabel htmlFor="test-steps">Steps to execute</FieldLabel>
+          <Textarea
+            id="test-steps"
             required
             rows={4}
-            maxLength={5000}
             value={steps}
             onChange={(e) => setSteps(e.target.value)}
             placeholder="1. Open the application…"
           />
-        </label>
-        <label>
-          Expected result
-          <textarea
+        </Field>
+        <Field>
+          <FieldLabel htmlFor="test-expected">Expected result</FieldLabel>
+          <Textarea
+            id="test-expected"
             required
             rows={2}
-            maxLength={3000}
             value={expected}
             onChange={(e) => setExpected(e.target.value)}
             placeholder="Describe the successful outcome…"
           />
-        </label>
+        </Field>
         {!isNew && (
-          <div className="test-run-section">
+          <div className="flex flex-col gap-3 rounded-lg border border-border bg-muted/40 p-3">
             <div>
-              <strong>Record a manual result</strong>
-              <p>Execute the saved steps in your application before recording.</p>
+              <strong className="text-sm font-medium">Record a manual result</strong>
+              <p className="text-sm text-muted-foreground">
+                Execute the saved steps in your application before recording.
+              </p>
               {test.lastRun && (
-                <small>
+                <p className="mt-1 text-xs text-muted-foreground">
                   Last run:{" "}
                   {new Date(test.lastRun).toLocaleString("en-PH", { timeZone: "Asia/Manila" })} ·{" "}
                   {test.status}
-                </small>
+                </p>
               )}
             </div>
-            <div className="test-run-actions">
+            <div className="flex flex-wrap gap-2">
               {TEST_STATUSES.map((status) => (
-                <button
+                <Button
                   key={status}
                   type="button"
-                  className={`button ${status === "Passed" ? "pass-button" : status === "Failed" ? "fail-button" : "secondary"}`}
+                  size="sm"
+                  variant={
+                    status === "Passed"
+                      ? "default"
+                      : status === "Failed"
+                        ? "destructive"
+                        : "outline"
+                  }
                   onClick={() => onResult(test.id, status)}
                 >
                   {status}
-                </button>
+                </Button>
               ))}
             </div>
           </div>
         )}
-        <div className="modal-footer">
-          <span className="flex-spacer" />
-          <button type="button" className="button secondary" onClick={onClose}>
+        <DialogFooter className="mt-2 sm:items-center">
+          {!isNew && (
+            <Button
+              type="button"
+              variant="destructive"
+              className="sm:mr-auto"
+              onClick={() => setConfirmDelete(true)}
+            >
+              <Trash2 aria-hidden="true" />
+              Delete test case
+            </Button>
+          )}
+          <Button type="button" variant="outline" onClick={onClose}>
             Cancel
-          </button>
-          <button type="submit" className="button primary" disabled={isNew && !selectedProject}>
+          </Button>
+          <Button type="submit" disabled={isNew && !selectedProject}>
             Save test case
-            <Check size={15} />
-          </button>
-        </div>
+            <Check aria-hidden="true" />
+          </Button>
+        </DialogFooter>
       </form>
-    </Modal>
-  );
-}
-
-function AuthDialog({
-  onClose,
-  notify,
-}: {
-  onClose: () => void;
-  notify: (message: string) => void;
-}) {
-  const [signup, setSignup] = useState(false);
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
-  const [message, setMessage] = useState("");
-  return (
-    <Modal
-      title={
-        supabase
-          ? signup
-            ? "Join the quest."
-            : "Welcome back, explorer."
-          : "Connect your cloud workspace."
-      }
-      subtitle={
-        supabase
-          ? "Your personal QA progress, wherever you work."
-          : "A little setup. A whole new level."
-      }
-      onClose={onClose}
-    >
-      {!supabase ? (
-        <div className="help-content">
-          <div className="auth-setup-icon">
-            <Database size={32} />
-          </div>
-          <p>
-            Supabase isn’t configured yet. Your local workspace is ready to use, and changes stay in
-            this browser.
-          </p>
-          <ol>
-            <li>
-              Create your project at{" "}
-              <a href="https://supabase.com/dashboard" target="_blank" rel="noreferrer">
-                Supabase <ExternalLink size={12} />
-              </a>
-              .
-            </li>
-            <li>
-              Run <code>supabase/migrations/001_workspace.sql</code> then{" "}
-              <code>supabase/migrations/002_shared_realtime.sql</code> in its SQL Editor.
-            </li>
-            <li>
-              Copy <code>.env.example</code> to <code>.env.local</code>, enter your project URL and
-              publishable key, then restart Next.js.
-            </li>
-          </ol>
-          <button className="button primary" onClick={onClose}>
-            Continue locally <ArrowRight size={14} />
-          </button>
-        </div>
-      ) : (
-        <form
-          className="dialog-form"
-          onSubmit={async (e) => {
-            e.preventDefault();
-            if (!supabase) return;
-            setBusy(true);
-            setError("");
-            setMessage("");
-            try {
-              const result = signup
-                ? await supabase.auth.signUp({ email, password })
-                : await supabase.auth.signInWithPassword({ email, password });
-              if (result.error) setError(result.error.message);
-              else if (signup && !result.data.session)
-                setMessage("Check your inbox to confirm your email, then return here to sign in.");
-              else {
-                notify("Cloud workspace connected");
-                onClose();
-              }
-            } catch {
-              setError("Unable to reach Supabase. Check your connection and try again.");
-            } finally {
-              setBusy(false);
-            }
-          }}
-        >
-          <label>
-            Email address
-            <input
-              type="email"
-              autoComplete="email"
-              required
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              placeholder="you@yourteam.com"
-            />
-          </label>
-          <label>
-            Password
-            <input
-              type="password"
-              autoComplete={signup ? "new-password" : "current-password"}
-              minLength={8}
-              required
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              placeholder="At least 8 characters"
-            />
-          </label>
-          {error && (
-            <p className="form-error" role="alert">
-              {error}
-            </p>
-          )}
-          {message && (
-            <p className="form-success" role="status">
-              {message}
-            </p>
-          )}
-          <button disabled={busy} className="button primary full-width" type="submit">
-            {busy ? <LoaderCircle className="spin" size={16} /> : <LogIn size={16} />}
-            {signup ? "Create account" : "Sign in"}
-          </button>
-          <button
-            className="text-button auth-switch"
-            type="button"
-            onClick={() => {
-              setSignup(!signup);
-              setError("");
-              setMessage("");
-            }}
-          >
-            {signup ? "Already an explorer? Sign in" : "New here? Create an account"}
-            <ArrowRight size={13} />
-          </button>
-          <p className="auth-note">
-            Cloud workspaces start empty. Your local records remain saved on this device.
-          </p>
-        </form>
+      {!isNew && (
+        <ConfirmDialog
+          open={confirmDelete}
+          title={`Delete ${test.id}?`}
+          description="The test case, its steps, and its last result are removed from this workspace."
+          confirmLabel="Delete test case"
+          onCancel={() => setConfirmDelete(false)}
+          onConfirm={() => onDelete(test.id)}
+        />
       )}
     </Modal>
   );
@@ -2280,30 +2199,37 @@ function WorkspaceSettings({
   const [goal, setGoal] = useState(workspace.sprintGoal);
   return (
     <form
-      className="settings-form"
+      className="flex flex-col gap-4"
       onSubmit={(e) => {
         e.preventDefault();
         if (sprint.trim() && goal.trim()) onSave(sprint.trim(), goal.trim());
       }}
     >
-      <label>
-        Sprint name
-        <input maxLength={40} required value={sprint} onChange={(e) => setSprint(e.target.value)} />
-      </label>
-      <label>
-        Sprint goal
-        <textarea
+      <Field>
+        <FieldLabel htmlFor="settings-sprint">Sprint name</FieldLabel>
+        <Input
+          id="settings-sprint"
+          maxLength={40}
+          required
+          value={sprint}
+          onChange={(e) => setSprint(e.target.value)}
+        />
+      </Field>
+      <Field>
+        <FieldLabel htmlFor="settings-goal">Sprint goal</FieldLabel>
+        <Textarea
+          id="settings-goal"
           maxLength={200}
           required
           rows={3}
           value={goal}
           onChange={(e) => setGoal(e.target.value)}
         />
-      </label>
-      <button className="button primary" type="submit">
-        <Check size={15} />
+      </Field>
+      <Button className="self-start" type="submit">
+        <Check aria-hidden="true" />
         Save changes
-      </button>
+      </Button>
     </form>
   );
 }

@@ -1,0 +1,42 @@
+/* Only motion lives here; the illustration's layout and palette use Tailwind and auth tokens. */
+.float {
+  animation: float 6s ease-in-out infinite;
+}
+
+.check {
+  animation: check 6s ease-in-out infinite;
+}
+
+.paused * {
+  animation-play-state: paused !important;
+}
+
+@keyframes float {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-9px);
+  }
+}
+
+@keyframes check {
+  0%,
+  12%,
+  88%,
+  100% {
+    opacity: 0.25;
+  }
+  25%,
+  75% {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .float,
+  .check {
+    animation: none;
+  }
+}

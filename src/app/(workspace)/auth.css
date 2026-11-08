@@ -1,0 +1,81 @@
+/*
+  The sign-in screen carries its own fixed palette — a dark brand panel beside a white form — in
+  both themes, so it always matches the approved design. These are the only raw colors on the
+  page; everything else references them.
+*/
+.vexa-auth {
+  --auth-ink: #102625;
+  --auth-deep: #063f3b;
+  --auth-emerald: #087e73;
+  --auth-mint: #4fe0cb;
+  --auth-mint-bright: #36f0d5;
+  --auth-mint-soft: #a0f5e8;
+  --auth-surface: #ffffff;
+  --auth-border: #d7dfe4;
+  --auth-muted: #64748b;
+
+  /*
+    Design-system components inside the page resolve their tokens from here, so the form keeps the
+    approved light treatment in either theme without overriding each component. Focus lands on
+    emerald, which is this page's accent.
+  */
+  --background: var(--auth-surface);
+  --foreground: var(--auth-ink);
+  --card: var(--auth-surface);
+  --card-foreground: var(--auth-ink);
+  --popover: var(--auth-surface);
+  --popover-foreground: var(--auth-ink);
+  --muted: #f1f5f4;
+  --muted-foreground: var(--auth-muted);
+  --border: var(--auth-border);
+  --input: var(--auth-border);
+  --ring: var(--auth-emerald);
+  --destructive: #b42318;
+  color-scheme: light;
+}
+
+/* Dark teal base with emerald depth and a soft mint glow toward the lower right. */
+.vexa-auth-brand {
+  background-image:
+    radial-gradient(
+      115% 85% at 88% 88%,
+      color-mix(in oklab, var(--auth-mint) 34%, transparent) 0%,
+      transparent 58%
+    ),
+    radial-gradient(
+      75% 65% at 62% 78%,
+      color-mix(in oklab, var(--auth-emerald) 62%, transparent) 0%,
+      transparent 62%
+    ),
+    linear-gradient(158deg, var(--auth-ink) 0%, var(--auth-deep) 58%, var(--auth-ink) 100%);
+}
+
+/*
+  The gradient stops at emerald rather than running to mint: white text on the mint end would
+  fall to about 1.6:1, well under the contrast this page has to meet.
+*/
+.vexa-auth-submit {
+  background-image: linear-gradient(90deg, var(--auth-deep) 0%, var(--auth-emerald) 100%);
+}
+.vexa-auth-submit:hover:not(:disabled) {
+  background-image: linear-gradient(90deg, #0a4f4a 0%, #0a9488 100%);
+}
+
+.auth-loading {
+  min-height: 100svh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 20px;
+  color: var(--text-secondary);
+}
+.auth-loading p {
+  font-size: 12px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .auth-loading * {
+    animation: none !important;
+    transition: none !important;
+  }
+}

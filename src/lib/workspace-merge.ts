@@ -62,6 +62,9 @@ export function mergeWorkspaces(base: Workspace, local: Workspace, remote: Works
   }
 
   const merged: Workspace = {
+    calendarEvents: records(
+      base.calendarEvents ?? [], local.calendarEvents ?? [], remote.calendarEvents ?? [], "calendar activity",
+    ),
     projects: records(base.projects ?? [], local.projects ?? [], remote.projects ?? [], "project"),
     issues: records(base.issues, local.issues, remote.issues, "quest"),
     tests: records(base.tests, local.tests, remote.tests, "test"),

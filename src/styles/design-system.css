@@ -1,0 +1,502 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+
+/* VEXA's theme script sets data-theme on <html> (see lib/theme.ts), not a .dark class. */
+@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-dm-sans, "DM Sans"), Arial, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --font-heading: var(--font-barlow-condensed, "Barlow Condensed"), var(--font-sans);
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar: var(--sidebar);
+  --color-chart-track: var(--chart-track);
+  --color-chart-grid: var(--chart-grid);
+  --color-chart-age-5: var(--chart-age-5);
+  --color-chart-age-4: var(--chart-age-4);
+  --color-chart-age-3: var(--chart-age-3);
+  --color-chart-age-2: var(--chart-age-2);
+  --color-chart-age-1: var(--chart-age-1);
+  --color-chart-5: var(--chart-5);
+  --color-chart-4: var(--chart-4);
+  --color-chart-3: var(--chart-3);
+  --color-chart-2: var(--chart-2);
+  --color-chart-1: var(--chart-1);
+  --color-event-green-subtle: var(--event-green-subtle);
+  --color-event-green: var(--event-green);
+  --color-event-teal-subtle: var(--event-teal-subtle);
+  --color-event-teal: var(--event-teal);
+  --color-event-sky-subtle: var(--event-sky-subtle);
+  --color-event-sky: var(--event-sky);
+  --color-event-blue-subtle: var(--event-blue-subtle);
+  --color-event-blue: var(--event-blue);
+  --color-event-indigo-subtle: var(--event-indigo-subtle);
+  --color-event-indigo: var(--event-indigo);
+  --color-event-violet-subtle: var(--event-violet-subtle);
+  --color-event-violet: var(--event-violet);
+  --color-event-fuchsia-subtle: var(--event-fuchsia-subtle);
+  --color-event-fuchsia: var(--event-fuchsia);
+  --color-event-pink-subtle: var(--event-pink-subtle);
+  --color-event-pink: var(--event-pink);
+  --color-event-red-subtle: var(--event-red-subtle);
+  --color-event-red: var(--event-red);
+  --color-event-orange-subtle: var(--event-orange-subtle);
+  --color-event-orange: var(--event-orange);
+  --color-event-amber-subtle: var(--event-amber-subtle);
+  --color-event-amber: var(--event-amber);
+  --color-event-lime-subtle: var(--event-lime-subtle);
+  --color-event-lime: var(--event-lime);
+  --color-event-slate-subtle: var(--event-slate-subtle);
+  --color-event-slate: var(--event-slate);
+  --color-status-neutral-subtle: var(--status-neutral-subtle);
+  --color-status-neutral: var(--status-neutral);
+  --color-status-info-subtle: var(--status-info-subtle);
+  --color-status-info: var(--status-info);
+  --color-status-critical-subtle: var(--status-critical-subtle);
+  --color-status-critical: var(--status-critical);
+  --color-status-attention-subtle: var(--status-attention-subtle);
+  --color-status-attention: var(--status-attention);
+  --color-status-positive-subtle: var(--status-positive-subtle);
+  --color-status-positive: var(--status-positive);
+  --color-brand-border: var(--brand-border);
+  --color-brand-subtle: var(--brand-subtle);
+  --color-brand-strong: var(--brand-strong);
+  --color-brand-foreground: var(--brand-foreground);
+  --color-brand: var(--brand);
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-destructive: var(--destructive);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent: var(--accent);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted: var(--muted);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary: var(--primary);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+  --color-glass-border: var(--glass-border);
+  --color-glass: var(--glass);
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+  --radius-2xl: calc(var(--radius) * 1.8);
+  --radius-3xl: calc(var(--radius) * 2.2);
+  --radius-4xl: calc(var(--radius) * 2.6);
+}
+
+/*
+  Graphite & Teal, shared with the workspace stylesheet (app/(workspace)/theme.css): warm neutral
+  surfaces, near-black type, and one restrained teal for primary actions, the active place, and
+  focus. Token names match DESIGN.md so components never reference a VEXA-specific variable.
+*/
+
+:root {
+  --background: #f7f7f5;
+  --foreground: #18181b;
+  --card: #ffffff;
+  --card-foreground: #18181b;
+  --popover: #ffffff;
+  --popover-foreground: #18181b;
+  --primary: #0f766e;
+  --primary-foreground: #ffffff;
+  --secondary: #f2f2ef;
+  --secondary-foreground: #18181b;
+  --muted: #f2f2ef;
+  --muted-foreground: #71717a;
+  --accent: #f4f4f2;
+  --accent-foreground: #18181b;
+  --destructive: #b42318;
+  --border: #e4e4e0;
+  --input: #8b8b94;
+  --ring: #0f766e;
+
+  --brand: #0f766e;
+  --brand-foreground: #ffffff;
+  --brand-strong: #115e59;
+  --brand-subtle: #ecf7f5;
+  --brand-border: #b7ded8;
+
+  --status-positive: #067647;
+  --status-positive-subtle: #ecfdf3;
+  --status-attention: #b54708;
+  --status-attention-subtle: #fffaeb;
+  --status-critical: #b42318;
+  --status-critical-subtle: #fef3f2;
+  --status-info: #6941c6;
+  --status-info-subtle: #f4f3ff;
+  --status-neutral: #52525b;
+  --status-neutral-subtle: #f4f4f5;
+
+  /*
+    Calendar event swatches: identity only, chosen per event kind by the owner.
+    The base value is the dot and edge; the subtle value is the chip fill under
+    foreground text.
+  */
+  --event-green: oklch(0.56 0.15 150);
+  --event-green-subtle: oklch(0.94 0.045 150);
+  --event-teal: oklch(0.56 0.12 185);
+  --event-teal-subtle: oklch(0.94 0.036 185);
+  --event-sky: oklch(0.56 0.13 225);
+  --event-sky-subtle: oklch(0.94 0.039 225);
+  --event-blue: oklch(0.56 0.16 255);
+  --event-blue-subtle: oklch(0.94 0.048 255);
+  --event-indigo: oklch(0.56 0.17 275);
+  --event-indigo-subtle: oklch(0.94 0.05 275);
+  --event-violet: oklch(0.56 0.17 300);
+  --event-violet-subtle: oklch(0.94 0.05 300);
+  --event-fuchsia: oklch(0.56 0.19 325);
+  --event-fuchsia-subtle: oklch(0.94 0.05 325);
+  --event-pink: oklch(0.56 0.17 355);
+  --event-pink-subtle: oklch(0.94 0.05 355);
+  --event-red: oklch(0.56 0.19 25);
+  --event-red-subtle: oklch(0.94 0.05 25);
+  --event-orange: oklch(0.56 0.17 50);
+  --event-orange-subtle: oklch(0.94 0.05 50);
+  --event-amber: oklch(0.56 0.15 80);
+  --event-amber-subtle: oklch(0.94 0.045 80);
+  --event-lime: oklch(0.56 0.16 125);
+  --event-lime-subtle: oklch(0.94 0.048 125);
+  --event-slate: oklch(0.56 0.025 250);
+  --event-slate-subtle: oklch(0.94 0.007 250);
+
+  /*
+    Categorical slots are assigned in this fixed order and never cycled. The
+    order is the colourblind-safety mechanism: it was chosen by enumerating
+    orderings and keeping the one with the widest worst adjacent pair. Slot 1
+    holds the brand hue so a chart reads as part of the product.
+    Validated on the card surface: worst adjacent pair 10.9 ΔE under protanopia,
+    17.9 ΔE at normal vision, every slot above 3:1 contrast.
+  */
+  --chart-1: oklch(0.52 0.125 156);
+  --chart-2: oklch(0.5 0.16 268);
+  --chart-3: oklch(0.6 0.15 350);
+  --chart-4: oklch(0.66 0.135 62);
+  --chart-5: oklch(0.62 0.105 205);
+
+  /*
+    An ordinal ramp for age buckets: one hue, monotone lightness, darker as a
+    debt gets older. Never used for identity.
+  */
+  --chart-age-1: oklch(0.77 0.08 27);
+  --chart-age-2: oklch(0.69 0.12 27);
+  --chart-age-3: oklch(0.61 0.15 27);
+  --chart-age-4: oklch(0.53 0.17 27);
+  --chart-age-5: oklch(0.44 0.18 27);
+
+  --chart-grid: #e4e4e0;
+  --chart-track: #f2f2ef;
+
+  /*
+    Glass surfaces. --glass is the translucent fill that replaces --card on raised
+    chrome; --glass-strong backs overlays, which need more opacity because they sit
+    over arbitrary content. The fills are set by contrast, not by taste: --muted-foreground
+    is only 4.83:1 on solid white to begin with, and 82% holds it at 4.63:1, so thinning
+    them further drops supporting text below AA.
+    --glass-highlight is the lit top edge that makes the pane read as a sheet
+    rather than a tint, and --ambient is the wash behind everything: without
+    something to refract, a backdrop blur over a flat background is invisible.
+  */
+  --glass: color-mix(in oklch, #ffffff 82%, transparent);
+  --glass-strong: color-mix(in oklch, #ffffff 90%, transparent);
+  /*
+    A translucent neutral hairline, not a white one: on a light page a white border
+    is brighter than the pane and the edge disappears. The lit edge comes from
+    --glass-highlight on top of it. Resolves close to the opaque --border (#e4e4e0),
+    so panes keep the definition they had. Dark mode inverts this: there the rim is
+    the bright element.
+  */
+  --glass-border: color-mix(in oklch, #18181b 10%, transparent);
+  --glass-highlight: color-mix(in oklch, #ffffff 85%, transparent);
+  --glass-shadow: #18181b1f;
+  --glass-blur: 16px;
+  --glass-blur-strong: 28px;
+  --glass-saturate: 165%;
+  --ambient:
+    radial-gradient(60rem 40rem at 12% -8%, color-mix(in oklch, #0f766e 13%, transparent), transparent 70%),
+    radial-gradient(48rem 34rem at 92% 4%, color-mix(in oklch, #6941c6 10%, transparent), transparent 72%),
+    radial-gradient(52rem 42rem at 72% 96%, color-mix(in oklch, #0ea5a0 9%, transparent), transparent 70%);
+
+  /* Matches --control-radius in the workspace stylesheet. */
+  --radius: 0.375rem;
+
+  /* The sidebar follows the page surface, a shade lighter than the background. */
+  --sidebar: #fbfbfa;
+  --sidebar-foreground: #18181b;
+  --sidebar-primary: #0f766e;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #f2f2ef;
+  --sidebar-accent-foreground: #18181b;
+  --sidebar-border: #e4e4e0;
+  --sidebar-ring: #0f766e;
+}
+
+:root[data-theme="dark"] {
+  --background: #0f1113;
+  --foreground: #ededef;
+  --card: #16181b;
+  --card-foreground: #ededef;
+  --popover: #16181b;
+  --popover-foreground: #ededef;
+  --primary: #5ec4b6;
+  --primary-foreground: #062520;
+  --secondary: #1c1f23;
+  --secondary-foreground: #ededef;
+  --muted: #1c1f23;
+  --muted-foreground: #9a9ea6;
+  --accent: #1f2327;
+  --accent-foreground: #ededef;
+  --destructive: #f97970;
+  --border: #2a2e33;
+  --input: #646a73;
+  --ring: #5ec4b6;
+
+  --brand: #5ec4b6;
+  --brand-foreground: #062520;
+  --brand-strong: #7dd3c7;
+  --brand-subtle: #15302d;
+  --brand-border: #2c5a54;
+
+  --status-positive: #6ccb9a;
+  --status-positive-subtle: #12261c;
+  --status-attention: #f0b44c;
+  --status-attention-subtle: #2a2112;
+  --status-critical: #f97970;
+  --status-critical-subtle: #2a1514;
+  --status-info: #b39df5;
+  --status-info-subtle: #1e1a33;
+  --status-neutral: #a1a1aa;
+  --status-neutral-subtle: #1f2226;
+
+  /*
+    Calendar event swatches, stepped for the dark card surface.
+    The base value is the dot and edge; the subtle value is the chip fill under
+    foreground text.
+  */
+  --event-green: oklch(0.74 0.128 150);
+  --event-green-subtle: oklch(0.3 0.06 150);
+  --event-teal: oklch(0.74 0.102 185);
+  --event-teal-subtle: oklch(0.3 0.048 185);
+  --event-sky: oklch(0.74 0.111 225);
+  --event-sky-subtle: oklch(0.3 0.052 225);
+  --event-blue: oklch(0.74 0.136 255);
+  --event-blue-subtle: oklch(0.3 0.064 255);
+  --event-indigo: oklch(0.74 0.145 275);
+  --event-indigo-subtle: oklch(0.3 0.068 275);
+  --event-violet: oklch(0.74 0.145 300);
+  --event-violet-subtle: oklch(0.3 0.068 300);
+  --event-fuchsia: oklch(0.74 0.162 325);
+  --event-fuchsia-subtle: oklch(0.3 0.07 325);
+  --event-pink: oklch(0.74 0.145 355);
+  --event-pink-subtle: oklch(0.3 0.068 355);
+  --event-red: oklch(0.74 0.162 25);
+  --event-red-subtle: oklch(0.3 0.07 25);
+  --event-orange: oklch(0.74 0.145 50);
+  --event-orange-subtle: oklch(0.3 0.068 50);
+  --event-amber: oklch(0.74 0.128 80);
+  --event-amber-subtle: oklch(0.3 0.06 80);
+  --event-lime: oklch(0.74 0.136 125);
+  --event-lime-subtle: oklch(0.3 0.064 125);
+  --event-slate: oklch(0.74 0.021 250);
+  --event-slate-subtle: oklch(0.3 0.01 250);
+
+  /*
+    Dark mode is stepped for the dark card surface rather than flipped, and
+    validated against it: worst adjacent pair 10.5 ΔE under protanopia,
+    17.1 ΔE at normal vision.
+  */
+  --chart-1: oklch(0.62 0.125 156);
+  --chart-2: oklch(0.6 0.15 268);
+  --chart-3: oklch(0.63 0.15 350);
+  --chart-4: oklch(0.66 0.135 62);
+  --chart-5: oklch(0.64 0.11 205);
+
+  /* The age ramp inverts on a dark surface: older debt is brighter. */
+  --chart-age-1: oklch(0.44 0.1 27);
+  --chart-age-2: oklch(0.51 0.13 27);
+  --chart-age-3: oklch(0.58 0.15 27);
+  --chart-age-4: oklch(0.65 0.17 27);
+  --chart-age-5: oklch(0.72 0.17 27);
+
+  --chart-grid: #2a2e33;
+  --chart-track: #1c1f23;
+
+  /*
+    Dark glass is stepped for the dark background rather than inverted: the fill is
+    the card colour thinned, and the highlight is a faint white edge instead of a
+    bright one, which is what keeps a pane legible without looking milky.
+  */
+  --glass: color-mix(in oklch, #16181b 68%, transparent);
+  --glass-strong: color-mix(in oklch, #16181b 88%, transparent);
+  --glass-border: color-mix(in oklch, #ffffff 11%, transparent);
+  --glass-highlight: color-mix(in oklch, #ffffff 9%, transparent);
+  --glass-shadow: #00000066;
+  --ambient:
+    radial-gradient(60rem 40rem at 12% -8%, color-mix(in oklch, #5ec4b6 15%, transparent), transparent 70%),
+    radial-gradient(48rem 34rem at 92% 4%, color-mix(in oklch, #b39df5 11%, transparent), transparent 72%),
+    radial-gradient(52rem 42rem at 72% 96%, color-mix(in oklch, #2c8a80 13%, transparent), transparent 70%);
+
+  --sidebar: #121417;
+  --sidebar-foreground: #ededef;
+  --sidebar-primary: #5ec4b6;
+  --sidebar-primary-foreground: #062520;
+  --sidebar-accent: #1c1f23;
+  --sidebar-accent-foreground: #ededef;
+  --sidebar-border: #2a2e33;
+  --sidebar-ring: #5ec4b6;
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply min-w-80 bg-background text-foreground;
+    background-image: var(--ambient);
+    background-attachment: fixed;
+    background-repeat: no-repeat;
+  }
+  html {
+    @apply font-sans;
+  }
+}
+
+/*
+  Public display typography. DESIGN.md sets a fluid size for public headings so
+  the hero holds its line count from 360px up, while the back office stays on
+  the fixed Tailwind scale.
+*/
+
+@layer components {
+  .text-display {
+    font-size: clamp(2.25rem, 5vw, 3.75rem);
+    line-height: 1.04;
+    letter-spacing: -0.028em;
+  }
+
+  .text-display-sm {
+    font-size: clamp(1.75rem, 3.4vw, 2.5rem);
+    line-height: 1.1;
+    letter-spacing: -0.022em;
+  }
+
+  /*
+    A glass pane: translucent fill, a blurred backdrop, and a lit top edge.
+    `glass` is the default for raised chrome (cards, panels, the sidebar, the top
+    bar); `glass-strong` is for overlays that float over content they must stay
+    readable against.
+
+    `glass-inset` is for a surface nested inside a pane: the same fill and edge with
+    no backdrop-filter, because a second filter blurs the pane above it rather than
+    the page and reads as muddy. One blur per stack.
+
+    All three set background-color and background-image only, so they compose with
+    Tailwind's ring-* and shadow-* utilities; elevation stays with those. A `bg-*`
+    utility on the same element still wins and cancels the fill, which is what
+    `stat-tile` relies on deliberately.
+  */
+  .glass,
+  .glass-strong,
+  .glass-inset {
+    background-color: var(--glass);
+    border-color: var(--glass-border);
+    /*
+      The lit top edge. This is a background-image rather than an inset box-shadow
+      on purpose: ring-* and shadow-* both compile to box-shadow in the utilities
+      layer, which sits above components, so a box-shadow here would lose to any
+      ring or shadow utility on the same element.
+    */
+    background-image: linear-gradient(to bottom, var(--glass-highlight) 0 1px, transparent 1px);
+  }
+
+  .glass {
+    -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+    backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+  }
+
+  .glass-strong {
+    background-color: var(--glass-strong);
+    -webkit-backdrop-filter: blur(var(--glass-blur-strong)) saturate(var(--glass-saturate));
+    backdrop-filter: blur(var(--glass-blur-strong)) saturate(var(--glass-saturate));
+  }
+
+  /*
+    Text over photography always sits on a scrim. The gradient is built from the
+    foreground token so it follows the theme instead of hard-coded black.
+  */
+  .photo-scrim {
+    background-image: linear-gradient(
+      to top,
+      color-mix(in oklch, var(--color-foreground) 88%, transparent) 0%,
+      color-mix(in oklch, var(--color-foreground) 62%, transparent) 38%,
+      color-mix(in oklch, var(--color-foreground) 20%, transparent) 72%,
+      transparent 100%
+    );
+  }
+}
+
+@layer base {
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
+}
+
+/*
+  How glass degrades. Both branches retarget the tokens rather than the surfaces, so
+  every glass surface follows at once: the design-system .glass class, the workspace
+  chrome in app/(workspace)/theme.css, and anything added later.
+
+  These rules are deliberately outside @layer base. The :root blocks above are
+  unlayered, and an unlayered declaration wins over any layered one whatever the
+  source order, so a layered override here would never apply.
+*/
+
+/*
+  No backdrop-filter means the blur never happens, and a translucent fill over an
+  unblurred background is just a washed-out card. Go opaque instead.
+*/
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  :root,
+  :root[data-theme="dark"] {
+    --glass: var(--card);
+    --glass-strong: var(--popover);
+    --glass-border: var(--border);
+    --glass-highlight: transparent;
+  }
+}
+
+/*
+  There is deliberately no prefers-reduced-transparency branch here.
+
+  Glass is the product's visual identity, and the call was made to render it for
+  everyone rather than fall back to flat surfaces when the OS asks for reduced
+  transparency. Windows maps Settings > Personalization > Colors > "Transparency
+  effects" onto that query and it is off on a fair number of machines, so a branch
+  here would switch the design off for a sizeable share of users.
+
+  The tradeoff is real: anyone who set that preference still gets the blur. The
+  thing that protects them is contrast, so the fills are kept opaque enough that
+  body and supporting text clear AA on every surface (see the measurements in
+  DESIGN.md). Do not thin them without re-measuring.
+*/

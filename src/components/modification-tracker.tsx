@@ -1,19 +1,53 @@
 "use client";
 
-import { useRef, useState, type FormEvent } from "react";
-import { ArrowRight, Check, NotebookPen, Pencil, Plus, Trash2, X } from "lucide-react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
+import { ArrowRight, Check, NotebookPen, Plus, X } from "lucide-react";
 import { PRIORITIES, STATUSES, type Modification, type Project } from "@/lib/model";
+import { modificationDatesProblem, toModificationDate } from "@/lib/modifications";
+import { ConfirmDialog } from "@/components/forms/confirm-dialog";
+import { FilterCombobox, valueOptions } from "@/components/forms/filter-combobox";
+import { OptionCombobox } from "@/components/forms/option-combobox";
+import { projectOptions } from "@/components/forms/project-options";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
+import { Field, FieldDescription, FieldError, FieldGroup, FieldLabel } from "@/components/ui/field";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { EmptyState, Panel } from "@/components/app-shell/panel";
+import { ModificationTable } from "@/components/workspace-tables/modification-table";
+import { supabase } from "@/lib/supabase";
+import {
+  downloadAttachment,
+  formatBytes,
+  rejectAttachment,
+  rejectionMessage,
+  removeAttachments,
+  uploadAttachment,
+  type Attachment,
+} from "@/features/attachments";
 
-type Details = Omit<Modification, "id" | "projectName">;
+type Details = Omit<
+  Modification,
+  "id" | "projectName" | "developer" | "requestedAt" | "modifiedAt"
+> & {
+  requestedAt: string;
+  modifiedAt: string;
+};
 const blankDetails = (): Details => ({
   projectId: "",
   module: "",
   description: "",
   priority: "Medium",
   status: "Backlog",
-  developer: "",
   notes: "",
+  requestedAt: "",
+  modifiedAt: "",
 });
+
+async function loadAttachment(attachment: Attachment): Promise<Blob> {
+  if (!supabase) throw new Error("Sign in to preview attachments in your cloud workspace.");
+  return downloadAttachment(supabase, attachment);
+}
 
 export default function ModificationTracker({
   projects,
@@ -22,6 +56,9 @@ export default function ModificationTracker({
   onChange,
   onNotice,
   onManageProjects,
+  openId,
+  onOpened,
+  workspaceOwner,
 }: {
   projects: Project[];
   modifications: Modification[];
@@ -29,18 +66,41 @@ export default function ModificationTracker({
   onChange: (modifications: Modification[]) => void;
   onNotice: (message: string) => void;
   onManageProjects: () => void;
+  /** Opens this modification in the edit form, e.g. when chosen on the Quest Board. */
+  openId?: string;
+  onOpened?: () => void;
+  /** The signed-in workspace owner. Without one there is no storage to hold attachments. */
+  workspaceOwner?: string | null;
 }) {
   const [details, setDetails] = useState<Details>(blankDetails);
+  const [uploadingId, setUploadingId] = useState<string | null>(null);
+  const canAttach = !!supabase && !!workspaceOwner;
+  // The form opens on demand: Add modification, or Edit from a row.
+  const [editorOpen, setEditorOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [projectFilter, setProjectFilter] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
   const [error, setError] = useState("");
-  const projectInput = useRef<HTMLSelectElement>(null);
+  const projectInput = useRef<HTMLButtonElement>(null);
+  const newButton = useRef<HTMLButtonElement>(null);
   const editing = modifications.find((modification) => modification.id === editingId);
   const selectedProject = projects.find((project) => project.id === details.projectId);
   const projectName =
     selectedProject?.name ?? (editing?.projectId === details.projectId ? editing.projectName : "");
+  const developer =
+    selectedProject?.developer ??
+    (editing?.projectId === details.projectId ? editing.developer : "");
+
+  // Move focus only when the form opens, closes, or switches record, not on page load.
+  const lastEditorState = useRef(`${editorOpen}:${editingId}`);
+  useEffect(() => {
+    const state = `${editorOpen}:${editingId}`;
+    if (state === lastEditorState.current) return;
+    lastEditorState.current = state;
+    if (editorOpen) projectInput.current?.focus();
+    else newButton.current?.focus();
+  }, [editorOpen, editingId]);
   const activeProjectFilter = projects.some((project) => project.id === projectFilter)
     ? projectFilter
     : "";
@@ -61,10 +121,43 @@ export default function ModificationTracker({
   );
   const deleting = modifications.find((modification) => modification.id === deletingId);
 
+  function startEdit(modification: Modification) {
+    setEditingId(modification.id);
+    setEditorOpen(true);
+    setDetails({
+      projectId: modification.projectId,
+      module: modification.module,
+      description: modification.description,
+      priority: modification.priority,
+      status: modification.status,
+      notes: modification.notes,
+      requestedAt: toModificationDate(modification.requestedAt) ?? "",
+      modifiedAt: toModificationDate(modification.modifiedAt) ?? "",
+    });
+    setDeletingId(null);
+    setError("");
+    projectInput.current?.focus();
+  }
+  // A modification opened from the Quest Board starts in edit mode, once.
+  const openedRequest = useRef<string | undefined>(undefined);
+  useEffect(() => {
+    if (!openId || openedRequest.current === openId) return;
+    openedRequest.current = openId;
+    const requested = modifications.find((modification) => modification.id === openId);
+    if (requested) startEdit(requested);
+    onOpened?.();
+    // startEdit only sets state; re-running for its identity would reopen the form.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [openId, modifications, onOpened]);
+
   function reset() {
     setDetails(blankDetails());
     setEditingId(null);
     setError("");
+  }
+  function closeEditor() {
+    reset();
+    setEditorOpen(false);
   }
   function save(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -72,10 +165,18 @@ export default function ModificationTracker({
       !details.projectId ||
       !projectName ||
       !details.module.trim() ||
-      !details.description.trim() ||
-      !details.developer.trim()
+      !details.description.trim()
     ) {
-      setError("Select a project and enter the module, modification details, and developer.");
+      setError("Select a project and enter the module and modification details.");
+      return;
+    }
+    if (!developer.trim()) {
+      setError("Add a developer to this project in Project Maintenance before saving.");
+      return;
+    }
+    const datesProblem = modificationDatesProblem(details.requestedAt, details.modifiedAt);
+    if (datesProblem) {
+      setError(datesProblem);
       return;
     }
     const modification: Modification = {
@@ -86,8 +187,10 @@ export default function ModificationTracker({
       description: details.description.trim(),
       priority: details.priority,
       status: details.status,
-      developer: details.developer.trim(),
+      developer: developer.trim(),
       notes: details.notes.trim(),
+      requestedAt: details.requestedAt || null,
+      modifiedAt: details.modifiedAt || null,
     };
     onChange(
       editingId
@@ -99,304 +202,358 @@ export default function ModificationTracker({
     projectInput.current?.focus();
   }
 
+  /** Replaces one record's attachment list, reading from the latest props rather than a copy. */
+  function saveAttachments(id: string, next: (current: Attachment[]) => Attachment[]) {
+    onChange(
+      modifications.map((entry) =>
+        entry.id === id ? { ...entry, attachments: next(entry.attachments ?? []) } : entry,
+      ),
+    );
+  }
+
+  async function attachFiles(modification: Modification, files: File[]) {
+    if (!supabase || !workspaceOwner || uploadingId) return;
+    const existing = modification.attachments ?? [];
+    const accepted: File[] = [];
+    for (const file of files) {
+      const reason = rejectAttachment(file, existing.length + accepted.length);
+      if (reason) onNotice(rejectionMessage(reason, file.name));
+      else accepted.push(file);
+    }
+    if (!accepted.length) return;
+    setUploadingId(modification.id);
+    const uploaded: Attachment[] = [];
+    try {
+      for (const file of accepted) {
+        uploaded.push(await uploadAttachment(supabase, file, workspaceOwner, modification.id));
+      }
+    } catch (error) {
+      onNotice(error instanceof Error ? error.message : "The file could not be attached.");
+    } finally {
+      setUploadingId(null);
+    }
+    if (!uploaded.length) return;
+    saveAttachments(modification.id, (current) => [...current, ...uploaded]);
+    const saved = uploaded.reduce(
+      (total, attachment) => total + (attachment.size - attachment.storedSize),
+      0,
+    );
+    onNotice(
+      `${uploaded.length === 1 ? uploaded[0].name : `${uploaded.length} files`} attached` +
+        (saved > 0 ? ` · ${formatBytes(saved)} saved by compression` : ""),
+    );
+  }
+
+  async function detachFile(modification: Modification, attachment: Attachment) {
+    // The record is updated even when the object cannot be deleted, so a person is never stuck
+    // with an attachment they cannot remove; the orphaned object is reported instead.
+    saveAttachments(modification.id, (current) =>
+      current.filter((entry) => entry.id !== attachment.id),
+    );
+    try {
+      if (supabase) await removeAttachments(supabase, [attachment]);
+      onNotice(`${attachment.name} removed`);
+    } catch {
+      onNotice(`${attachment.name} was removed from the record, but the stored file remains.`);
+    }
+  }
+
   return (
     <div className="modification-layout">
-      <section className="panel">
-        <div className="panel-heading">
-          <div>
-            <span className="eyebrow">CHANGE CONTROL</span>
-            <h2>{editingId ? "Edit modification" : "Add modification"}</h2>
-          </div>
-          <NotebookPen size={19} className="muted" />
-        </div>
-        <form className="settings-form modification-form" onSubmit={save}>
-          <div className="modification-fields">
-            <label>
-              Project Name
-              <select
-                ref={projectInput}
-                required
+      {editorOpen && (
+        <Panel
+          titleId="modification-editor-heading"
+          eyebrow="CHANGE CONTROL"
+          title={<>{editingId ? "Edit modification" : "Add modification"}</>}
+          action={
+            <>
+              <Button
+                type="button"
+                size="icon"
+                variant="ghost"
+                aria-label={
+                  editingId ? "Close edit modification form" : "Close add modification form"
+                }
+                title="Close form"
+                onClick={closeEditor}
+              >
+                <X aria-hidden="true" />
+              </Button>
+            </>
+          }
+        >
+          <form className="flex flex-col gap-4" onSubmit={save}>
+            <FieldGroup className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+              <OptionCombobox
+                id="modification-project"
+                label="Project name"
+                options={projectOptions(projects, editing)}
+                placeholder="Select a project"
+                triggerRef={projectInput}
                 value={details.projectId}
-                onChange={(event) => {
-                  const project = projects.find((entry) => entry.id === event.target.value);
-                  setDetails((value) => ({
-                    ...value,
-                    projectId: event.target.value,
-                    developer: project?.developer ?? value.developer,
-                  }));
-                }}
-              >
-                <option value="" disabled>
-                  Select a project
-                </option>
-                {editing && !projects.some((project) => project.id === editing.projectId) && (
-                  <option value={editing.projectId} disabled>
-                    {editing.projectName} (archived)
-                  </option>
+                onChange={(value) => setDetails((current) => ({ ...current, projectId: value }))}
+              />
+              <Field>
+                <FieldLabel htmlFor="modification-module">Module</FieldLabel>
+                <Input
+                  id="modification-module"
+                  required
+                  placeholder="Enter module"
+                  value={details.module}
+                  onChange={(event) =>
+                    setDetails((value) => ({ ...value, module: event.target.value }))
+                  }
+                />
+              </Field>
+              <Field>
+                <FieldLabel htmlFor="modification-developer">Developer</FieldLabel>
+                <Input
+                  id="modification-developer"
+                  readOnly
+                  className="bg-muted text-muted-foreground"
+                  aria-describedby="modification-developer-help"
+                  placeholder="Select a project first"
+                  value={developer}
+                />
+                <FieldDescription id="modification-developer-help">
+                  {selectedProject
+                    ? "Filled automatically from Project Maintenance."
+                    : editing
+                      ? "Saved developer for this archived project."
+                      : "Filled automatically when you select a project."}
+                </FieldDescription>
+                {selectedProject && !developer.trim() && (
+                  <Button
+                    type="button"
+                    variant="link"
+                    className="h-auto justify-start p-0"
+                    onClick={onManageProjects}
+                  >
+                    Set project developer <ArrowRight aria-hidden="true" />
+                  </Button>
                 )}
-                {projects.map((project) => (
-                  <option key={project.id} value={project.id}>
-                    {project.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label>
-              Module
-              <input
-                required
-                maxLength={120}
-                placeholder="Enter module"
-                value={details.module}
-                onChange={(event) =>
-                  setDetails((value) => ({ ...value, module: event.target.value }))
-                }
-              />
-            </label>
-            <label>
-              Developer
-              <input
-                required
-                maxLength={120}
-                placeholder="Enter developer name"
-                value={details.developer}
-                onChange={(event) =>
-                  setDetails((value) => ({ ...value, developer: event.target.value }))
-                }
-              />
-            </label>
-            <label>
-              Priority
-              <select
+              </Field>
+              <OptionCombobox
+                id="modification-priority"
+                label="Priority"
+                options={valueOptions(PRIORITIES)}
+                placeholder="Select a priority"
                 value={details.priority}
-                onChange={(event) =>
-                  setDetails((value) => ({
-                    ...value,
-                    priority: event.target.value as Modification["priority"],
+                onChange={(value) =>
+                  setDetails((current) => ({
+                    ...current,
+                    priority: value as Modification["priority"],
                   }))
                 }
-              >
-                {PRIORITIES.map((priority) => (
-                  <option key={priority}>{priority}</option>
-                ))}
-              </select>
-            </label>
-            <label>
-              Status
-              <select
+              />
+              <OptionCombobox
+                id="modification-status"
+                label="Status"
+                options={valueOptions(STATUSES)}
+                placeholder="Select a status"
                 value={details.status}
-                onChange={(event) =>
-                  setDetails((value) => ({
-                    ...value,
-                    status: event.target.value as Modification["status"],
-                  }))
+                onChange={(value) =>
+                  setDetails((current) => ({ ...current, status: value as Modification["status"] }))
                 }
-              >
-                {STATUSES.map((status) => (
-                  <option key={status}>{status}</option>
-                ))}
-              </select>
-            </label>
-          </div>
-          <label>
-            Modification Details
-            <textarea
-              required
-              rows={3}
-              maxLength={5000}
-              placeholder="Describe the requested change"
-              value={details.description}
-              onChange={(event) =>
-                setDetails((value) => ({ ...value, description: event.target.value }))
-              }
-            />
-          </label>
-          <label>
-            Notes <small>(optional)</small>
-            <textarea
-              rows={2}
-              maxLength={3000}
-              placeholder="Add supporting details or progress notes"
-              value={details.notes}
-              onChange={(event) => setDetails((value) => ({ ...value, notes: event.target.value }))}
-            />
-          </label>
-          {!projects.length && !editing && (
-            <div className="info-note">
-              <span>Add a project in Project Maintenance before recording a modification.</span>
-              <button type="button" className="text-button" onClick={onManageProjects}>
-                Add project <ArrowRight size={13} />
-              </button>
-            </div>
-          )}
-          {error && (
-            <p className="form-error" role="alert">
-              {error}
-            </p>
-          )}
-          <div className="project-form-actions">
-            <button
-              type="submit"
-              className="button primary"
-              disabled={!projects.length && !editing}
-            >
-              {editingId ? <Check size={15} /> : <Plus size={15} />}
-              {editingId ? "Save modification" : "Add modification"}
-            </button>
-            {editingId && (
-              <button type="button" className="button secondary" onClick={reset}>
-                <X size={15} />
-                Cancel
-              </button>
+              />
+              <Field>
+                <FieldLabel htmlFor="modification-requested">
+                  Date requested{" "}
+                  <span className="font-normal text-muted-foreground">(optional)</span>
+                </FieldLabel>
+                <Input
+                  id="modification-requested"
+                  type="date"
+                  min="2000-01-01"
+                  max={details.modifiedAt || undefined}
+                  value={details.requestedAt}
+                  onChange={(event) =>
+                    setDetails((value) => ({ ...value, requestedAt: event.target.value }))
+                  }
+                />
+              </Field>
+              <Field>
+                <FieldLabel htmlFor="modification-modified">
+                  Date modified{" "}
+                  <span className="font-normal text-muted-foreground">(optional)</span>
+                </FieldLabel>
+                <Input
+                  id="modification-modified"
+                  type="date"
+                  min={details.requestedAt || "2000-01-01"}
+                  aria-describedby="modification-modified-help"
+                  value={details.modifiedAt}
+                  onChange={(event) =>
+                    setDetails((value) => ({ ...value, modifiedAt: event.target.value }))
+                  }
+                />
+                <FieldDescription id="modification-modified-help">
+                  Cannot be before the date requested.
+                </FieldDescription>
+              </Field>
+            </FieldGroup>
+            <Field>
+              <FieldLabel htmlFor="modification-details">Modification details</FieldLabel>
+              <Textarea
+                id="modification-details"
+                required
+                rows={3}
+                placeholder="Describe the requested change"
+                value={details.description}
+                onChange={(event) =>
+                  setDetails((value) => ({ ...value, description: event.target.value }))
+                }
+              />
+            </Field>
+            <Field>
+              <FieldLabel htmlFor="modification-remarks">
+                Remarks <span className="font-normal text-muted-foreground">(optional)</span>
+              </FieldLabel>
+              <Textarea
+                id="modification-remarks"
+                rows={2}
+                placeholder="Add supporting remarks or progress notes"
+                value={details.notes}
+                onChange={(event) =>
+                  setDetails((value) => ({ ...value, notes: event.target.value }))
+                }
+              />
+            </Field>
+            {!projects.length && !editing && (
+              <Alert>
+                <AlertDescription className="flex flex-wrap items-center gap-2">
+                  Add a project in Project Maintenance before recording a modification.
+                  <Button
+                    type="button"
+                    variant="link"
+                    className="h-auto p-0"
+                    onClick={onManageProjects}
+                  >
+                    Add project <ArrowRight aria-hidden="true" />
+                  </Button>
+                </AlertDescription>
+              </Alert>
             )}
-          </div>
-        </form>
-      </section>
-      <section className="panel">
-        <div className="panel-heading modification-record-heading">
-          <h2>
-            Modification records <span className="subtle-label">({filtered.length})</span>
-          </h2>
-          <div className="modification-filters">
-            <select
-              aria-label="Filter modifications by project"
-              value={activeProjectFilter}
-              onChange={(event) => setProjectFilter(event.target.value)}
-            >
-              <option value="">All projects</option>
-              {projects.map((project) => (
-                <option key={project.id} value={project.id}>
-                  {project.name}
-                </option>
-              ))}
-            </select>
-            <select
-              aria-label="Filter modifications by status"
-              value={statusFilter}
-              onChange={(event) => setStatusFilter(event.target.value)}
-            >
-              <option value="">All statuses</option>
-              {STATUSES.map((status) => (
-                <option key={status}>{status}</option>
-              ))}
-            </select>
-          </div>
-        </div>
-        {deleting && (
-          <div className="project-delete-notice" role="alert">
-            <p>
-              Delete this modification for <strong>{deleting.projectName}</strong>, module{" "}
-              <strong>{deleting.module}</strong>?
-            </p>
-            <div className="project-form-actions">
-              <button
+            {error && <FieldError>{error}</FieldError>}
+            <div className="flex flex-wrap gap-2">
+              <Button type="submit" disabled={!projects.length && !editing}>
+                {editingId ? <Check aria-hidden="true" /> : <Plus aria-hidden="true" />}
+                {editingId ? "Save modification" : "Add modification"}
+              </Button>
+              {editingId && (
+                <Button type="button" variant="outline" onClick={closeEditor}>
+                  <X aria-hidden="true" />
+                  Cancel
+                </Button>
+              )}
+            </div>
+          </form>
+        </Panel>
+      )}
+      <Panel
+        title={
+          <>
+            Modification records{" "}
+            <span className="font-normal text-muted-foreground">({filtered.length})</span>
+          </>
+        }
+        action={
+          <>
+            {!editorOpen && (
+              <Button
+                ref={newButton}
                 type="button"
-                className="button fail-button"
                 onClick={() => {
-                  onChange(modifications.filter((modification) => modification.id !== deletingId));
-                  if (editingId === deletingId) reset();
-                  setDeletingId(null);
-                  onNotice("Modification deleted");
+                  reset();
+                  setEditorOpen(true);
                 }}
               >
-                Confirm delete
-              </button>
-              <button
-                type="button"
-                className="button secondary"
-                onClick={() => setDeletingId(null)}
-              >
-                Cancel
-              </button>
+                <Plus aria-hidden="true" />
+                Add modification
+              </Button>
+            )}
+            <div className="flex flex-wrap gap-2">
+              <FilterCombobox
+                allLabel="All projects"
+                label="Filter modifications by project"
+                options={projectOptions(projects)}
+                value={activeProjectFilter}
+                onChange={setProjectFilter}
+              />
+              <FilterCombobox
+                allLabel="All statuses"
+                label="Filter modifications by status"
+                options={valueOptions(STATUSES)}
+                value={statusFilter}
+                onChange={setStatusFilter}
+              />
             </div>
-          </div>
-        )}
-        <div className="issue-table-wrap">
-          <table className="project-table modification-table">
-            <thead>
-              <tr>
-                <th scope="col">Project Name</th>
-                <th scope="col">Module</th>
-                <th scope="col">Modification</th>
-                <th scope="col">Priority</th>
-                <th scope="col">Status</th>
-                <th scope="col">Developer</th>
-                <th scope="col">Notes</th>
-                <th scope="col">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filtered.map((modification) => (
-                <tr key={modification.id}>
-                  <th scope="row">{modification.projectName}</th>
-                  <td>{modification.module}</td>
-                  <td className="modification-long-text">{modification.description}</td>
-                  <td>
-                    <span className={`priority ${modification.priority.toLowerCase()}`}>
-                      {modification.priority}
-                    </span>
-                  </td>
-                  <td>
-                    <span
-                      className={`status modification-status ${modification.status.toLowerCase().replaceAll(" ", "-")}`}
-                    >
-                      <i />
-                      {modification.status}
-                    </span>
-                  </td>
-                  <td>{modification.developer}</td>
-                  <td className="modification-long-text">{modification.notes || "—"}</td>
-                  <td>
-                    <div className="project-record-actions">
-                      <button
-                        type="button"
-                        className="icon-button"
-                        aria-label={`Edit modification for ${modification.projectName}: ${modification.module}`}
-                        onClick={() => {
-                          setEditingId(modification.id);
-                          setDetails({
-                            projectId: modification.projectId,
-                            module: modification.module,
-                            description: modification.description,
-                            priority: modification.priority,
-                            status: modification.status,
-                            developer: modification.developer,
-                            notes: modification.notes,
-                          });
-                          setDeletingId(null);
-                          setError("");
-                          projectInput.current?.focus();
-                        }}
-                      >
-                        <Pencil size={15} />
-                      </button>
-                      <button
-                        type="button"
-                        className="icon-button danger"
-                        aria-label={`Delete modification for ${modification.projectName}: ${modification.module}`}
-                        onClick={() => setDeletingId(modification.id)}
-                      >
-                        <Trash2 size={15} />
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+          </>
+        }
+      >
+        <ConfirmDialog
+          open={Boolean(deleting)}
+          title="Delete this modification?"
+          description={`This removes the ${deleting?.module ?? ""} modification for ${deleting?.projectName ?? "this project"}.`}
+          confirmLabel="Delete modification"
+          onCancel={() => setDeletingId(null)}
+          onConfirm={() => {
+            // The record's own attachments go with it, so their stored objects are released too.
+            const removed = deleting?.attachments ?? [];
+            onChange(modifications.filter((modification) => modification.id !== deletingId));
+            if (editingId === deletingId) reset();
+            setDeletingId(null);
+            if (supabase && removed.length)
+              void removeAttachments(supabase, removed).catch(() => {});
+            onNotice("Modification deleted");
+          }}
+        />
+        <ModificationTable
+          canAttach={canAttach}
+          uploadingId={uploadingId}
+          onAttach={(modification, files) => void attachFiles(modification, files)}
+          onDetach={(modification, attachment) => void detachFile(modification, attachment)}
+          onLoadAttachment={loadAttachment}
+          modifications={filtered}
+          onEdit={startEdit}
+          onDelete={(modification) => setDeletingId(modification.id)}
+          onUpdate={(modification) => {
+            const before = modifications.find((entry) => entry.id === modification.id);
+            onChange(
+              modifications.map((entry) => (entry.id === modification.id ? modification : entry)),
+            );
+            // Keep an open edit form in step, so saving it does not undo the inline change.
+            if (editingId === modification.id)
+              setDetails((value) => ({
+                ...value,
+                priority: modification.priority,
+                status: modification.status,
+              }));
+            onNotice(
+              before?.priority !== modification.priority
+                ? `${modification.module}: priority set to ${modification.priority}`
+                : `${modification.module}: moved to ${modification.status}`,
+            );
+          }}
+        />
         {!filtered.length && (
-          <div className="empty">
-            <NotebookPen size={30} />
-            <h3>{modifications.length ? "No matching modifications" : "No modifications yet"}</h3>
-            <p>
-              {modifications.length
-                ? "Adjust your project, status, or search filters."
-                : "Record your first modification using the form above."}
-            </p>
-          </div>
+          <EmptyState
+            icon={NotebookPen}
+            title={
+              <>{modifications.length ? "No matching modifications" : "No modifications yet"}</>
+            }
+            description={
+              <>
+                {modifications.length
+                  ? "Adjust your project, status, or search filters."
+                  : editorOpen
+                    ? "Record your first modification using the form above."
+                    : "Choose Add modification to record your first change."}
+              </>
+            }
+          />
         )}
-      </section>
+      </Panel>
     </div>
   );
 }
