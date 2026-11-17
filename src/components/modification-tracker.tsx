@@ -3,7 +3,11 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { ArrowRight, Check, NotebookPen, Plus, X } from "lucide-react";
 import { PRIORITIES, STATUSES, type Modification, type Project } from "@/lib/model";
-import { modificationDatesProblem, toModificationDate } from "@/lib/modifications";
+import {
+  modificationDatesProblem,
+  saveModification,
+  toModificationDate,
+} from "@/lib/modifications";
 import { ConfirmDialog } from "@/components/forms/confirm-dialog";
 import { FilterCombobox, valueOptions } from "@/components/forms/filter-combobox";
 import { OptionCombobox } from "@/components/forms/option-combobox";
@@ -59,6 +63,7 @@ export default function ModificationTracker({
   openId,
   onOpened,
   workspaceOwner,
+  readOnly = false,
 }: {
   projects: Project[];
   modifications: Modification[];
@@ -71,10 +76,11 @@ export default function ModificationTracker({
   onOpened?: () => void;
   /** The signed-in workspace owner. Without one there is no storage to hold attachments. */
   workspaceOwner?: string | null;
+  readOnly?: boolean;
 }) {
   const [details, setDetails] = useState<Details>(blankDetails);
   const [uploadingId, setUploadingId] = useState<string | null>(null);
-  const canAttach = !!supabase && !!workspaceOwner;
+  const canAttach = !readOnly && !!supabase && !!workspaceOwner;
   // The form opens on demand: Add modification, or Edit from a row.
   const [editorOpen, setEditorOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -122,6 +128,7 @@ export default function ModificationTracker({
   const deleting = modifications.find((modification) => modification.id === deletingId);
 
   function startEdit(modification: Modification) {
+    if (readOnly) return;
     setEditingId(modification.id);
     setEditorOpen(true);
     setDetails({
@@ -150,8 +157,12 @@ export default function ModificationTracker({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [openId, modifications, onOpened]);
 
+  /**
+   * A new record starts in the project the list is filtered to, so adding several changes to one
+   * project does not mean picking it again each time. With no filter the picker starts empty.
+   */
   function reset() {
-    setDetails(blankDetails());
+    setDetails({ ...blankDetails(), projectId: activeProjectFilter });
     setEditingId(null);
     setError("");
   }
@@ -161,6 +172,7 @@ export default function ModificationTracker({
   }
   function save(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (readOnly) return;
     if (
       !details.projectId ||
       !projectName ||
@@ -192,11 +204,7 @@ export default function ModificationTracker({
       requestedAt: details.requestedAt || null,
       modifiedAt: details.modifiedAt || null,
     };
-    onChange(
-      editingId
-        ? modifications.map((entry) => (entry.id === editingId ? modification : entry))
-        : [modification, ...modifications],
-    );
+    onChange(saveModification(modifications, modification, editingId));
     onNotice(editingId ? "Modification updated" : "Modification added");
     reset();
     projectInput.current?.focus();
@@ -212,7 +220,7 @@ export default function ModificationTracker({
   }
 
   async function attachFiles(modification: Modification, files: File[]) {
-    if (!supabase || !workspaceOwner || uploadingId) return;
+    if (readOnly || !supabase || !workspaceOwner || uploadingId) return;
     const existing = modification.attachments ?? [];
     const accepted: File[] = [];
     for (const file of files) {
@@ -245,6 +253,7 @@ export default function ModificationTracker({
   }
 
   async function detachFile(modification: Modification, attachment: Attachment) {
+    if (readOnly) return;
     // The record is updated even when the object cannot be deleted, so a person is never stuck
     // with an attachment they cannot remove; the orphaned object is reported instead.
     saveAttachments(modification.id, (current) =>
@@ -260,7 +269,7 @@ export default function ModificationTracker({
 
   return (
     <div className="modification-layout">
-      {editorOpen && (
+      {!readOnly && editorOpen && (
         <Panel
           titleId="modification-editor-heading"
           eyebrow="CHANGE CONTROL"
@@ -459,7 +468,7 @@ export default function ModificationTracker({
         }
         action={
           <>
-            {!editorOpen && (
+            {!readOnly && !editorOpen && (
               <Button
                 ref={newButton}
                 type="button"
@@ -492,12 +501,13 @@ export default function ModificationTracker({
         }
       >
         <ConfirmDialog
-          open={Boolean(deleting)}
+          open={!readOnly && Boolean(deleting)}
           title="Delete this modification?"
           description={`This removes the ${deleting?.module ?? ""} modification for ${deleting?.projectName ?? "this project"}.`}
           confirmLabel="Delete modification"
           onCancel={() => setDeletingId(null)}
           onConfirm={() => {
+            if (readOnly) return;
             // The record's own attachments go with it, so their stored objects are released too.
             const removed = deleting?.attachments ?? [];
             onChange(modifications.filter((modification) => modification.id !== deletingId));
@@ -509,6 +519,7 @@ export default function ModificationTracker({
           }}
         />
         <ModificationTable
+          readOnly={readOnly}
           canAttach={canAttach}
           uploadingId={uploadingId}
           onAttach={(modification, files) => void attachFiles(modification, files)}
@@ -518,6 +529,7 @@ export default function ModificationTracker({
           onEdit={startEdit}
           onDelete={(modification) => setDeletingId(modification.id)}
           onUpdate={(modification) => {
+            if (readOnly) return;
             const before = modifications.find((entry) => entry.id === modification.id);
             onChange(
               modifications.map((entry) => (entry.id === modification.id ? modification : entry)),
@@ -546,7 +558,9 @@ export default function ModificationTracker({
               <>
                 {modifications.length
                   ? "Adjust your project, status, or search filters."
-                  : editorOpen
+                  : readOnly
+                    ? "Modifications added by your QA team will appear here."
+                    : editorOpen
                     ? "Record your first modification using the form above."
                     : "Choose Add modification to record your first change."}
               </>

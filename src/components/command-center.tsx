@@ -119,11 +119,13 @@ import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import DeploymentTracker from "@/components/deployment-tracker";
 import ModificationTracker from "@/components/modification-tracker";
+import { canOpenWorkspaceView } from "@/features/workspace-access";
 import WorkspaceDashboard from "@/components/workspace-dashboard";
 import { workspaceContributors } from "@/lib/dashboard";
 import WorkspaceSharing from "@/components/workspace-sharing";
 import ThemeSwitcher from "@/components/theme-switcher";
 import { ActivityCalendarScreen } from "@/features/activity-calendar";
+import { removeAttachments, useRecordAttachments } from "@/features/attachments";
 
 type View =
   | "Overview"
@@ -269,6 +271,7 @@ export default function CommandCenter() {
     user,
     saveDisplayName,
     owner,
+    role,
     sharedWorkspaces,
     ready,
     sync,
@@ -279,7 +282,9 @@ export default function CommandCenter() {
     joinWorkspace,
     flush,
   } = useWorkspace();
-  const [view, setView] = useState<View>("Overview");
+  const [requestedView, setView] = useState<View>("Overview");
+  const developerOnly = role === "developer";
+  const view = canOpenWorkspaceView(role, requestedView) ? requestedView : "Modification Tracker";
   const [achievementMotionPaused, setAchievementMotionPaused] = useState(false);
   const [search, setSearch] = useState("");
   const [priority, setPriority] = useState("");
@@ -309,6 +314,12 @@ export default function CommandCenter() {
   const [testModal, setTestModal] = useState<TestCase | "new" | null>(null);
   const [modificationToOpen, setModificationToOpen] = useState<string | null>(null);
   const [deletingTest, setDeletingTest] = useState<TestCase | null>(null);
+  useEffect(() => {
+    setIssueModal(null);
+    setTestModal(null);
+    setModificationToOpen(null);
+    setDeletingTest(null);
+  }, [owner, role]);
   const removeTest = (id: string) => {
     setWorkspace((w) => deleteTest(w, id));
     notify(`${id} deleted`);
@@ -357,12 +368,25 @@ export default function CommandCenter() {
   const visibleTests = projectTests.filter(
     (test) =>
       (!testFilter || test.status === testFilter) &&
-      `${test.title} ${test.id} ${test.suite}`.toLowerCase().includes(search.trim().toLowerCase()),
+      `${test.title} ${test.id} ${test.suite} ${test.developerRemarks ?? ""}`.toLowerCase().includes(search.trim().toLowerCase()),
   );
   // Sonner announces each message politely and dismisses it on its own.
   const notify = (message: string) => toast(message);
+  // Test Lab attachments use the same compression, bucket, and policies as the tracker's.
+  const testAttachments = useRecordAttachments({
+    workspaceOwner: owner ?? undefined,
+    readOnly: developerOnly,
+    onNotice: notify,
+    onChange: (id, next) =>
+      setWorkspace((w) => ({
+        ...w,
+        tests: w.tests.map((test) =>
+          test.id === id ? { ...test, attachments: next(test.attachments ?? []) } : test,
+        ),
+      })),
+  });
   const navigate = (next: View) => {
-    setView(next);
+    setView(canOpenWorkspaceView(role, next) ? next : "Modification Tracker");
     setSearch("");
     setSidebar(false);
     setNotifications(false);
@@ -531,7 +555,7 @@ export default function CommandCenter() {
         </button>
         <p className="brand-tagline">Verification and Execution Automation</p>
         <nav>
-          {navigation.map((group) => (
+          {navigation.map((group) => ({ ...group, items: group.items.filter(({ name }) => canOpenWorkspaceView(role, name)) })).filter((group) => group.items.length).map((group) => (
             <div className="nav-group" key={group.title}>
               <span className="nav-label">{group.title}</span>
               {group.items.map(({ name, icon: Icon }) => (
@@ -771,7 +795,7 @@ export default function CommandCenter() {
                   onChange={setTestProjectFilter}
                 />
               )}
-              {view === "Test lab" ? (
+              {view === "Test lab" && !developerOnly ? (
                 <Button
                   disabled={!ready}
 
@@ -788,6 +812,11 @@ export default function CommandCenter() {
               ) : null}
             </div>
           </div>
+          )}
+          {developerOnly && (
+            <Alert className="mb-4">
+              <AlertDescription>Developer access: view modifications and edit Developer remarks in Test Lab. Other QA fields are read-only.</AlertDescription>
+            </Alert>
           )}
           {error && (
             <div className="error-banner">
@@ -1021,6 +1050,8 @@ export default function CommandCenter() {
             )}
             {view === "Modification Tracker" && (
               <ModificationTracker
+                key={`${owner}:${role}`}
+                readOnly={developerOnly}
                 projects={workspace.projects ?? []}
                 modifications={workspace.modifications ?? []}
                 search={search}
@@ -1071,6 +1102,7 @@ export default function CommandCenter() {
                 >
                   <div className="test-list">
                     <TestCaseTable
+                      readOnly={developerOnly}
                       tests={visibleTests}
                       onEdit={setTestModal}
                       onDelete={setDeletingTest}
@@ -1080,13 +1112,29 @@ export default function CommandCenter() {
                           `${id}: ${status === "Not Tested" ? "reset to Not Tested" : `${status} result recorded`}`,
                         );
                       }}
+                      canAttach={testAttachments.canAttach}
+                      uploadingId={testAttachments.uploadingId}
+                      onAttach={(test, files) =>
+                        void testAttachments.attach(test.id, test.attachments ?? [], files)
+                      }
+                      onDetach={(test, attachment) =>
+                        void testAttachments.detach(test.id, attachment)
+                      }
+                      onLoadAttachment={testAttachments.load}
+                      onRemarksChange={(id, developerRemarks) => {
+                        setWorkspace((w) => ({
+                          ...w,
+                          tests: w.tests.map((t) => (t.id === id ? { ...t, developerRemarks } : t)),
+                        }));
+                        notify(`${id}: developer remarks updated`);
+                      }}
                     />
                     {!visibleTests.length && (
                       <EmptyState
                         icon={FlaskConical}
                         title={<>No matching test cases</>}
                         description={
-                          <>Add a test case or adjust your project, status, or search filters.</>
+                          <>{developerOnly ? "Test cases added by your QA team will appear here. Adjust your filters to see other records." : "Add a test case or adjust your project, status, or search filters."}</>
                         }
                       >
                         {(activeTestProjectFilter || testFilter || search) && (
@@ -1520,7 +1568,7 @@ export default function CommandCenter() {
                     />
                   </Panel>
                 )}
-                <Panel title="Workspace details" eyebrow="MAKE IT YOURS">
+                {!developerOnly && <Panel title="Workspace details" eyebrow="MAKE IT YOURS">
                   <WorkspaceSettings
                     key={owner ?? "local"}
                     workspace={workspace}
@@ -1529,7 +1577,7 @@ export default function CommandCenter() {
                       notify("Workspace settings saved");
                     }}
                   />
-                </Panel>
+                </Panel>}
                 <Panel title="Account & data">
                   <div className="settings-account">
                     <span className="eyebrow">CURRENT MODE</span>
@@ -1602,6 +1650,7 @@ export default function CommandCenter() {
                       key={owner}
                       userId={user.id}
                       owner={owner}
+                      role={role}
                       workspaces={sharedWorkspaces}
                       onSwitch={switchWorkspace}
                       onJoin={joinWorkspace}
@@ -1623,7 +1672,7 @@ export default function CommandCenter() {
           </footer>
         </main>
       </div>
-      {issueModal && (
+      {!developerOnly && issueModal && (
         <IssueDialog
           initialStatus={newStatus}
           initialProjectId={view === "Quest board" ? selectedQuestProject?.id : undefined}
@@ -1675,8 +1724,10 @@ export default function CommandCenter() {
           }}
         />
       )}
-      {testModal && (
+      {testModal && (!developerOnly || testModal !== "new") && (
         <TestDialog
+          key={`${owner}:${role}:${testModal === "new" ? "new" : testModal.id}`}
+          remarksOnly={developerOnly}
           test={testModal}
           initialProjectId={selectedTestProject?.id}
           projects={workspace.projects ?? []}
@@ -1691,10 +1742,10 @@ export default function CommandCenter() {
               tests:
                 testModal === "new"
                   ? [...w.tests, test]
-                  : w.tests.map((t) => (t.id === test.id ? test : t)),
+                  : w.tests.map((t) => (t.id === test.id ? developerOnly ? { ...t, developerRemarks: test.developerRemarks ?? "" } : test : t)),
             }));
             setTestModal(null);
-            notify("Test case saved");
+            notify(developerOnly ? "Developer remarks updated" : "Test case saved");
           }}
           onResult={(id, status) => {
             setWorkspace((w) => runTest(w, id, status));
@@ -1708,13 +1759,18 @@ export default function CommandCenter() {
         />
       )}
       <ConfirmDialog
-        open={Boolean(deletingTest)}
+        open={!developerOnly && Boolean(deletingTest)}
         title={`Delete ${deletingTest?.id ?? "this test case"}?`}
         description={`This removes the ${deletingTest?.title ?? ""} test case, its steps, and its last result.`}
         confirmLabel="Delete test case"
         onCancel={() => setDeletingTest(null)}
         onConfirm={() => {
-          if (deletingTest) removeTest(deletingTest.id);
+          if (deletingTest) {
+            // The record's own attachments go with it, so their stored objects are released too.
+            const removed = deletingTest.attachments ?? [];
+            removeTest(deletingTest.id);
+            if (supabase && removed.length) void removeAttachments(supabase, removed).catch(() => {});
+          }
           setDeletingTest(null);
         }}
       />
@@ -1999,6 +2055,7 @@ function IssueDialog({
 }
 
 function TestDialog({
+  remarksOnly = false,
   test,
   initialProjectId,
   projects,
@@ -2008,6 +2065,7 @@ function TestDialog({
   onResult,
   onDelete,
 }: {
+  remarksOnly?: boolean;
   test: TestCase | "new";
   initialProjectId?: string;
   projects: Project[];
@@ -2032,17 +2090,27 @@ function TestDialog({
   const [suite, setSuite] = useState(isNew ? "" : test.suite);
   const [steps, setSteps] = useState(isNew ? "" : test.steps);
   const [expected, setExpected] = useState(isNew ? "" : test.expected);
+  const [developerRemarks, setDeveloperRemarks] = useState(isNew ? "" : test.developerRemarks ?? "");
+  const [discardRemarks, setDiscardRemarks] = useState(false);
+  const close = () => {
+    if (developerRemarks !== (isNew ? "" : test.developerRemarks ?? "")) setDiscardRemarks(true);
+    else onClose();
+  };
   return (
     <Modal
       title={isNew ? "Create a test case" : test.id}
-      subtitle="Clear steps. Clear expectations. Confident releases."
-      onClose={onClose}
+      subtitle={remarksOnly ? "Review the test case and update Developer remarks." : "Clear steps. Clear expectations. Confident releases."}
+      onClose={close}
       wide
     >
       <form
         className="flex flex-col gap-4"
         onSubmit={(e) => {
           e.preventDefault();
+          if (remarksOnly) {
+            if (!isNew) onSave({ ...test, developerRemarks: developerRemarks.trim() });
+            return;
+          }
           if (isNew && !selectedProject) return;
           if (!title.trim() || !suite.trim() || !steps.trim() || !expected.trim()) return;
           onSave({
@@ -2052,11 +2120,13 @@ function TestDialog({
             suite: suite.trim(),
             steps: steps.trim(),
             expected: expected.trim(),
+            developerRemarks: developerRemarks.trim(),
             status: isNew ? "Not Tested" : test.status,
             lastRun: isNew ? null : test.lastRun,
           });
         }}
       >
+        <fieldset disabled={remarksOnly} className="flex min-w-0 flex-col gap-4 border-0 p-0">
         <OptionCombobox
           id="test-project"
           label="Test title (Project name)"
@@ -2117,7 +2187,18 @@ function TestDialog({
             placeholder="Describe the successful outcome…"
           />
         </Field>
-        {!isNew && (
+        </fieldset>
+        <Field>
+          <FieldLabel htmlFor="test-developer-remarks">Developer remarks <span className="font-normal text-muted-foreground">(optional)</span></FieldLabel>
+          <Textarea
+            id="test-developer-remarks"
+            rows={3}
+            value={developerRemarks}
+            onChange={(event) => setDeveloperRemarks(event.target.value)}
+            placeholder="Add developer findings or follow-up notes"
+          />
+        </Field>
+        {!isNew && !remarksOnly && (
           <div className="flex flex-col gap-3 rounded-lg border border-border bg-muted/40 p-3">
             <div>
               <strong className="text-sm font-medium">Record a manual result</strong>
@@ -2154,7 +2235,7 @@ function TestDialog({
           </div>
         )}
         <DialogFooter className="mt-2 sm:items-center">
-          {!isNew && (
+          {!isNew && !remarksOnly && (
             <Button
               type="button"
               variant="destructive"
@@ -2165,16 +2246,24 @@ function TestDialog({
               Delete test case
             </Button>
           )}
-          <Button type="button" variant="outline" onClick={onClose}>
+          <Button type="button" variant="outline" onClick={close}>
             Cancel
           </Button>
           <Button type="submit" disabled={isNew && !selectedProject}>
-            Save test case
+            {remarksOnly ? "Save developer remarks" : "Save test case"}
             <Check aria-hidden="true" />
           </Button>
         </DialogFooter>
       </form>
-      {!isNew && (
+      <ConfirmDialog
+        open={discardRemarks}
+        title="Discard unsaved developer remarks?"
+        description="Your changes to Developer remarks have not been saved."
+        confirmLabel="Discard changes"
+        onCancel={() => setDiscardRemarks(false)}
+        onConfirm={onClose}
+      />
+      {!isNew && !remarksOnly && (
         <ConfirmDialog
           open={confirmDelete}
           title={`Delete ${test.id}?`}

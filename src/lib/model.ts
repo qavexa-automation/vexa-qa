@@ -53,8 +53,11 @@ export type TestCase = {
   suite: string;
   steps: string;
   expected: string;
+  developerRemarks?: string;
   status: (typeof TEST_STATUSES)[number];
   lastRun: string | null;
+  /** Files attached to the record; absent on records saved before test attachments existed. */
+  attachments?: Attachment[];
 };
 export type Activity = {
   id: string;
@@ -339,8 +342,12 @@ export function isWorkspace(value: unknown): value is Workspace {
         typeof t.suite === "string" &&
         typeof t.steps === "string" &&
         typeof t.expected === "string" &&
+        (t.developerRemarks === undefined || typeof t.developerRemarks === "string") &&
         TEST_STATUSES.includes(t.status) &&
-        (t.lastRun === null || typeof t.lastRun === "string"),
+        (t.lastRun === null || typeof t.lastRun === "string") &&
+        (t.attachments === undefined ||
+          (Array.isArray(t.attachments) &&
+            t.attachments.every((attachment) => attachmentSchema.safeParse(attachment).success))),
     ) &&
     Array.isArray(data.activity) &&
     data.activity.every(

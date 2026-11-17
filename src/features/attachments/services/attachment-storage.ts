@@ -11,25 +11,26 @@ export const ATTACHMENT_BUCKET = "modification-attachments";
  */
 export function attachmentPath(
   workspaceOwner: string,
-  modificationId: string,
+  recordId: string,
   attachmentId: string,
 ): string {
-  return `${workspaceOwner}/${modificationId}/${attachmentId}`;
+  return `${workspaceOwner}/${recordId}/${attachmentId}`;
 }
 
 /**
- * Compresses and uploads one file, returning the metadata the modification record keeps. The
- * caller saves that record; an upload whose record never saves leaves only an unreferenced object.
+ * Compresses and uploads one file, returning the metadata the record keeps. Modifications and
+ * test cases share this path and bucket; the caller saves that record, and an upload whose
+ * record never saves leaves only an unreferenced object.
  */
 export async function uploadAttachment(
   client: SupabaseClient,
   file: File,
   workspaceOwner: string,
-  modificationId: string,
+  recordId: string,
 ): Promise<Attachment> {
   const compressed = await compressForUpload(file);
   const id = crypto.randomUUID();
-  const path = attachmentPath(workspaceOwner, modificationId, id);
+  const path = attachmentPath(workspaceOwner, recordId, id);
   const { error } = await client.storage
     .from(ATTACHMENT_BUCKET)
     .upload(path, compressed.blob, { contentType: compressed.contentType, upsert: false });

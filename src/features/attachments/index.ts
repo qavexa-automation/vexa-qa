@@ -1,4 +1,5 @@
 export { AttachmentCell } from "./components/attachment-cell";
+export { useRecordAttachments } from "./hooks/use-record-attachments";
 export {
   formatBytes,
   rejectAttachment,

@@ -17,9 +17,13 @@ import type { DataTableFeatures } from "@/components/data-table/data-table-featu
 import { editDeleteActions, RowActions } from "@/components/data-table/row-actions";
 import { useClientTable } from "@/components/data-table/use-client-table";
 import { InlineStatusSelect } from "@/components/forms/inline-status-select";
+import { InlineTextEdit } from "@/components/forms/inline-text-edit";
 import { LongTextCell, RecordTile, TextCell } from "@/components/workspace-tables/cells";
 import { TEST_STATUSES, type TestCase } from "@/lib/model";
 import { testStatusRank, testStatusTone } from "@/lib/status-tones";
+import { AttachmentCell, type Attachment } from "@/features/attachments";
+
+const ATTACHMENT_PRESENCE = ["Attached", "None"] as const;
 
 type TestStatus = TestCase["status"];
 const columnHelper = createColumnHelper<DataTableFeatures, TestCase>();
@@ -27,12 +31,15 @@ const columnHelper = createColumnHelper<DataTableFeatures, TestCase>();
 function TestStatusCombobox({
   test,
   onChange,
+  readOnly = false,
 }: {
   test: TestCase;
   onChange: (status: TestStatus) => void;
+  readOnly?: boolean;
 }) {
   return (
     <InlineStatusSelect
+      readOnly={readOnly}
       label={`Status for ${test.id}: ${test.title}`}
       onChange={onChange}
       options={TEST_STATUSES}
@@ -47,11 +54,27 @@ export default function TestCaseTable({
   onEdit,
   onDelete,
   onStatusChange,
+  onRemarksChange,
+  onAttach,
+  onDetach,
+  onLoadAttachment,
+  uploadingId,
+  canAttach,
+  readOnly = false,
 }: {
   tests: TestCase[];
   onEdit: (test: TestCase) => void;
   onDelete: (test: TestCase) => void;
   onStatusChange: (id: string, status: TestStatus) => void;
+  onRemarksChange: (id: string, remarks: string) => void;
+  /** Compresses and uploads dropped, pasted, or browsed files. */
+  onAttach: (test: TestCase, files: File[]) => void;
+  onDetach: (test: TestCase, attachment: Attachment) => void;
+  onLoadAttachment: (attachment: Attachment) => Promise<Blob>;
+  /** The record whose upload is in flight, if any. */
+  uploadingId: string | null;
+  canAttach: boolean;
+  readOnly?: boolean;
 }) {
   const columns = useMemo(
     () =>
@@ -63,7 +86,7 @@ export default function TestCaseTable({
           header: ({ column }) => <DataTableColumnHeader column={column} title="Test case" />,
           cell: ({ row }) => (
             <button
-              aria-label={`Edit ${row.original.id}: ${row.original.title}`}
+              aria-label={`${readOnly ? "Edit developer remarks for" : "Edit"} ${row.original.id}: ${row.original.title}`}
               className="group block min-w-48 rounded-md text-left outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
               onClick={() => onEdit(row.original)}
               type="button"
@@ -109,8 +132,47 @@ export default function TestCaseTable({
           header: ({ column }) => <DataTableColumnHeader column={column} title="Status" />,
           cell: ({ row }) => (
             <TestStatusCombobox
+              readOnly={readOnly}
               onChange={(status) => onStatusChange(row.original.id, status)}
               test={row.original}
+            />
+          ),
+        }),
+        columnHelper.accessor((test) => test.developerRemarks ?? "", {
+          id: "developerRemarks",
+          filterFn: filterText,
+          meta: { filter: textFilter("Developer remarks") },
+          enableSorting: false,
+          header: "Developer remarks",
+          cell: ({ getValue, row }) => (
+            <InlineTextEdit
+              label={`Developer remarks for ${row.original.id}: ${row.original.title}`}
+              value={getValue()}
+              onChange={(remarks) => onRemarksChange(row.original.id, remarks)}
+            />
+          ),
+        }),
+        // The column filters and sorts on the human label, so "Attached" / "None" is what the
+        // header filter and an export show; the cell itself stays interactive.
+        columnHelper.accessor((test) => (test.attachments?.length ? "Attached" : "None"), {
+          filterFn: filterOptions,
+          meta: {
+            filter: optionsFilter("Attachments", ATTACHMENT_PRESENCE),
+            cellClassName: "min-w-44",
+          },
+          id: "attachments",
+          sortFn: "text",
+          header: ({ column }) => <DataTableColumnHeader column={column} title="Attachments" />,
+          cell: ({ row }) => (
+            <AttachmentCell
+              attachments={row.original.attachments ?? []}
+              busy={uploadingId === row.original.id}
+              disabled={!canAttach}
+              readOnly={readOnly}
+              onAdd={(files) => onAttach(row.original, files)}
+              onLoad={onLoadAttachment}
+              onRemove={(attachment) => onDetach(row.original, attachment)}
+              subject={`${row.original.id}: ${row.original.title}`}
             />
           ),
         }),
@@ -122,7 +184,7 @@ export default function TestCaseTable({
           cell: ({ row }) => (
             <RowActions
               revealOnHover
-              actions={editDeleteActions(
+              actions={readOnly ? [{ label: "Edit developer remarks", icon: Pencil, onSelect: () => onEdit(row.original) }] : editDeleteActions(
                 "test case",
                 () => onEdit(row.original),
                 () => onDelete(row.original),
@@ -133,7 +195,18 @@ export default function TestCaseTable({
           ),
         }),
       ]),
-    [onEdit, onDelete, onStatusChange],
+    [
+      onEdit,
+      onDelete,
+      onStatusChange,
+      onRemarksChange,
+      onAttach,
+      onDetach,
+      onLoadAttachment,
+      uploadingId,
+      canAttach,
+      readOnly,
+    ],
   );
   const table = useClientTable({
     storageKey: "test-cases",
@@ -150,7 +223,7 @@ export default function TestCaseTable({
         <RecordTile
           action={
             <RowActions
-              actions={editDeleteActions(
+              actions={readOnly ? [{ label: "Edit developer remarks", icon: Pencil, onSelect: () => onEdit(test) }] : editDeleteActions(
                 "test case",
                 () => onEdit(test),
                 () => onDelete(test),
@@ -165,8 +238,35 @@ export default function TestCaseTable({
               label: "Status",
               value: (
                 <TestStatusCombobox
+                  readOnly={readOnly}
                   onChange={(status) => onStatusChange(test.id, status)}
                   test={test}
+                />
+              ),
+            },
+            {
+              label: "Developer remarks",
+              value: (
+                <InlineTextEdit
+                  className="w-full"
+                  label={`Developer remarks for ${test.id}: ${test.title}`}
+                  value={test.developerRemarks ?? ""}
+                  onChange={(remarks) => onRemarksChange(test.id, remarks)}
+                />
+              ),
+            },
+            {
+              label: "Attachments",
+              value: (
+                <AttachmentCell
+                  attachments={test.attachments ?? []}
+                  busy={uploadingId === test.id}
+                  disabled={!canAttach}
+                  readOnly={readOnly}
+                  onAdd={(files) => onAttach(test, files)}
+                  onLoad={onLoadAttachment}
+                  onRemove={(attachment) => onDetach(test, attachment)}
+                  subject={`${test.id}: ${test.title}`}
                 />
               ),
             },

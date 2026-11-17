@@ -20,7 +20,6 @@ import { DataTableColumnHeader } from "@/components/data-table/data-table-column
 import type { DataTableFeatures } from "@/components/data-table/data-table-features";
 import { editDeleteActions, RowActions } from "@/components/data-table/row-actions";
 import { useClientTable } from "@/components/data-table/use-client-table";
-import { StatusBadge } from "@/components/ui/status-badge";
 import {
   DateCell,
   LongTextCell,
@@ -45,6 +44,7 @@ export function ModificationTable({
   onLoadAttachment,
   uploadingId,
   canAttach,
+  readOnly = false,
 }: {
   modifications: Modification[];
   onEdit: (modification: Modification) => void;
@@ -59,6 +59,7 @@ export function ModificationTable({
   uploadingId: string | null;
   /** Attachments need cloud storage; local-only workspaces cannot hold files. */
   canAttach: boolean;
+  readOnly?: boolean;
 }) {
   const columns = useMemo(
     () =>
@@ -129,6 +130,7 @@ export function ModificationTable({
           header: ({ column }) => <DataTableColumnHeader column={column} title="Priority" />,
           cell: ({ row }) => (
             <InlineStatusSelect
+              readOnly={readOnly}
               label={`Priority for ${row.original.projectName}: ${row.original.module}`}
               onChange={(next) => onUpdate({ ...row.original, priority: next })}
               options={PRIORITIES}
@@ -155,6 +157,7 @@ export function ModificationTable({
                 attachments={row.original.attachments ?? []}
                 busy={uploadingId === row.original.id}
                 disabled={!canAttach}
+                readOnly={readOnly}
                 onAdd={(files) => onAttach(row.original, files)}
                 onLoad={onLoadAttachment}
                 onRemove={(attachment) => onDetach(row.original, attachment)}
@@ -171,6 +174,7 @@ export function ModificationTable({
           header: ({ column }) => <DataTableColumnHeader column={column} title="Status" />,
           cell: ({ row }) => (
             <InlineStatusSelect
+              readOnly={readOnly}
               label={`Status for ${row.original.projectName}: ${row.original.module}`}
               onChange={(next) => onUpdate({ ...row.original, status: next })}
               options={STATUSES}
@@ -179,7 +183,7 @@ export function ModificationTable({
             />
           ),
         }),
-        columnHelper.display({
+        ...(!readOnly ? [columnHelper.display({
           id: "actions",
           enableHiding: false,
           meta: { cellClassName: "w-px", headerClassName: "w-px" },
@@ -199,9 +203,9 @@ export function ModificationTable({
               subject={`${row.original.projectName}: ${row.original.module}`}
             />
           ),
-        }),
+        })] : []),
       ]),
-    [onEdit, onDelete, onUpdate, onAttach, onDetach, onLoadAttachment, uploadingId, canAttach],
+    [onEdit, onDelete, onUpdate, onAttach, onDetach, onLoadAttachment, uploadingId, canAttach, readOnly],
   );
   const table = useClientTable({
     storageKey: "modifications",
@@ -216,7 +220,7 @@ export function ModificationTable({
       ariaLabel="Modification records"
       renderTile={(modification) => (
         <RecordTile
-          action={
+          action={!readOnly &&
             <RowActions
               actions={editDeleteActions(
                 "modification",
@@ -232,6 +236,7 @@ export function ModificationTable({
               label: "Priority",
               value: (
                 <InlineStatusSelect
+                  readOnly={readOnly}
                   label={`Priority for ${modification.projectName}: ${modification.module}`}
                   onChange={(next) => onUpdate({ ...modification, priority: next })}
                   options={PRIORITIES}
@@ -248,6 +253,7 @@ export function ModificationTable({
                   attachments={modification.attachments ?? []}
                   busy={uploadingId === modification.id}
                   disabled={!canAttach}
+                  readOnly={readOnly}
                   onAdd={(files) => onAttach(modification, files)}
                   onLoad={onLoadAttachment}
                   onRemove={(attachment) => onDetach(modification, attachment)}
@@ -260,6 +266,7 @@ export function ModificationTable({
           ]}
           status={
             <InlineStatusSelect
+              readOnly={readOnly}
               label={`Status for ${modification.projectName}: ${modification.module}`}
               onChange={(next) => onUpdate({ ...modification, status: next })}
               options={STATUSES}

@@ -79,3 +79,151 @@
     transition: none !important;
   }
 }
+
+/*
+  Hero motion. Every layer below is decorative: it sits behind the copy in the panel's own
+  stacking context, keeps the dark upper-left region where the headline sits unlit so white text
+  holds its contrast, and stops entirely under prefers-reduced-motion.
+*/
+@keyframes vexa-drift-a {
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+  50% {
+    transform: translate3d(-7%, -5%, 0) scale(1.15);
+  }
+}
+@keyframes vexa-drift-b {
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0) scale(1.08);
+  }
+  50% {
+    transform: translate3d(6%, 7%, 0) scale(0.94);
+  }
+}
+@keyframes vexa-float {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-12px);
+  }
+}
+@keyframes vexa-rise {
+  from {
+    opacity: 0;
+    transform: translateY(16px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+@keyframes vexa-sheen {
+  0% {
+    background-position: 190% 0;
+  }
+  55%,
+  100% {
+    background-position: -90% 0;
+  }
+}
+
+.vexa-aurora {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(72px);
+  will-change: transform;
+}
+/* The brighter mint stays low and right, away from the headline. */
+.vexa-aurora-a {
+  inset: 42% -20% -26% 28%;
+  background: radial-gradient(
+    circle,
+    color-mix(in oklab, var(--auth-mint) 32%, transparent),
+    transparent 70%
+  );
+  animation: vexa-drift-a 26s ease-in-out infinite;
+}
+.vexa-aurora-b {
+  inset: -24% 26% 44% -18%;
+  background: radial-gradient(
+    circle,
+    color-mix(in oklab, var(--auth-emerald) 58%, transparent),
+    transparent 72%
+  );
+  animation: vexa-drift-b 34s ease-in-out infinite;
+}
+
+/* A faint engineering grid, masked away from the edges so it never competes with the copy. */
+.vexa-grid {
+  position: absolute;
+  inset: 0;
+  background-image:
+    linear-gradient(to right, rgb(255 255 255 / 0.045) 1px, transparent 1px),
+    linear-gradient(to bottom, rgb(255 255 255 / 0.045) 1px, transparent 1px);
+  background-size: 46px 46px;
+  mask-image: radial-gradient(115% 85% at 28% 18%, #000 0%, transparent 70%);
+}
+
+.vexa-float {
+  animation: vexa-float 7s ease-in-out infinite;
+}
+
+.vexa-rise {
+  animation: vexa-rise 0.7s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+.vexa-rise-1 {
+  animation-delay: 0.05s;
+}
+.vexa-rise-2 {
+  animation-delay: 0.18s;
+}
+.vexa-rise-3 {
+  animation-delay: 0.32s;
+}
+.vexa-rise-4 {
+  animation-delay: 0.46s;
+}
+
+/*
+  The word the product is selling, lit by a slow pass of light. This is the one place the page
+  animates something other than transform or opacity: a sheen across text cannot be expressed as
+  a transform without duplicating the word for assistive technology.
+*/
+.vexa-sheen {
+  background-image: linear-gradient(
+    100deg,
+    var(--auth-mint-bright) 0%,
+    var(--auth-mint-bright) 40%,
+    #ffffff 50%,
+    var(--auth-mint-bright) 60%,
+    var(--auth-mint-bright) 100%
+  );
+  background-size: 260% 100%;
+  background-clip: text;
+  -webkit-background-clip: text;
+  color: transparent;
+  animation: vexa-sheen 7s ease-in-out 1.4s infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .vexa-aurora-a,
+  .vexa-aurora-b,
+  .vexa-float,
+  .vexa-rise,
+  .vexa-sheen {
+    animation: none;
+  }
+  .vexa-rise {
+    opacity: 1;
+    transform: none;
+  }
+  .vexa-sheen {
+    background-image: none;
+    color: var(--auth-mint-bright);
+  }
+}

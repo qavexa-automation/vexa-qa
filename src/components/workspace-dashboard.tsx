@@ -6,8 +6,10 @@ import {
   ArrowRight,
   ArrowUpRight,
   Bug,
+  CalendarDays,
   CheckCircle2,
   Crosshair,
+  MapPin,
   FlaskConical,
   FolderKanban,
   NotebookPen,
@@ -27,11 +29,18 @@ import {
   type Issue,
   type Workspace,
 } from "@/lib/model";
+import {
+  eventAppearance,
+  eventsOnDate,
+  eventTime,
+  manilaToday,
+} from "@/features/activity-calendar";
 import { EmptyState, Panel, StatCard as Stat } from "@/components/app-shell/panel";
 import { PortfolioTable } from "@/components/workspace-tables/portfolio-table";
 
 type Destination =
   | "Quest board"
+  | "Activity Calendar"
   | "Test lab"
   | "Project Maintenance"
   | "Modification Tracker"
@@ -58,6 +67,10 @@ export default function WorkspaceDashboard({
 }) {
   const summary = dashboardSummary(workspace);
   const backlog = dashboardBacklog(workspace, search);
+  // Cancelled activities stay on the calendar but are not something to turn up for.
+  const todaysEvents = eventsOnDate(workspace.calendarEvents ?? [], manilaToday()).filter(
+    (event) => event.status !== "Cancelled",
+  );
   const link = (title: string, destination: Destination) => (
     <Button variant="link" className="h-auto p-0" onClick={() => onNavigate(destination)}>
       {title}
@@ -164,6 +177,47 @@ export default function WorkspaceDashboard({
       </div>
       <div className="dashboard-grid">
         <div className="dashboard-main">
+          <Panel
+            title={
+              <>
+                Today&rsquo;s schedule{" "}
+                <span className="font-normal text-muted-foreground">
+                  ({todaysEvents.length})
+                </span>
+              </>
+            }
+            action={link("Open calendar", "Activity Calendar")}
+          >
+            {todaysEvents.length ? (
+              <ul className="flex flex-col gap-2">
+                {todaysEvents.map((event) => (
+                  <li
+                    key={event.id}
+                    className={`flex flex-wrap items-baseline gap-x-3 gap-y-1 rounded-lg border px-3 py-2 ${eventAppearance[event.kind].chip}`}
+                  >
+                    <span className="font-medium tabular-nums">{eventTime(event)}</span>
+                    <span className="min-w-0 flex-1 break-words font-medium">{event.title}</span>
+                    <span className="text-xs text-muted-foreground">{event.kind}</span>
+                    {event.location && (
+                      <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
+                        <MapPin aria-hidden="true" size={12} />
+                        {event.location}
+                      </span>
+                    )}
+                    {event.status !== "Scheduled" && (
+                      <span className="text-xs text-muted-foreground">{event.status}</span>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <EmptyState
+                icon={CalendarDays}
+                title={<>Nothing scheduled today</>}
+                description="Activities you add to the Activity Calendar for today appear here."
+              />
+            )}
+          </Panel>
           <Panel title="Active quests" action={link("View all quests", "Quest board")}>
             <div className="dashboard-list-summary">
               <span>{backlog.length} matching backlog quests</span>

@@ -7,6 +7,7 @@ import { supabase } from "./supabase";
 import { CloudWorkspace } from "./cloud-workspace";
 import { relationalBackend } from "./relational-workspace";
 import { displayNameSchema, type ProfileSaveResult } from "@/features/profile";
+import { canUpdateWorkspace, type WorkspaceRole } from "@/features/workspace-access";
 
 const STORAGE_KEY = "vexa-qa-demo-v1";
 export const LOCAL_WORKSPACE_BACKUP_KEY = `${STORAGE_KEY}-before-sample-cleanup`;
@@ -17,6 +18,8 @@ export function useWorkspace() {
   const current = useRef(workspace);
   const [user, setUser] = useState<User | null>(null);
   const [owner, setOwner] = useState<string | null>(null);
+  const [role, setRole] = useState<WorkspaceRole>("owner");
+  const roleRef = useRef<WorkspaceRole>("owner");
   const [sharedWorkspaces, setSharedWorkspaces] = useState<SharedWorkspace[]>([]);
   const [ready, setReady] = useState(false);
   const [sync, setSync] = useState("Loading workspace");
@@ -68,7 +71,11 @@ export function useWorkspace() {
           const workspaceOwner =
             savedOwner && shared.some((m) => m.owner === savedOwner) ? savedOwner : nextUser.id;
           setOwner(workspaceOwner);
-          const backend = relationalBackend(client, workspaceOwner, nextUser.id);
+          const backend = relationalBackend(client, workspaceOwner, nextUser.id, (nextRole) => {
+            if (epoch.current !== currentEpoch) return;
+            roleRef.current = nextRole;
+            setRole(nextRole);
+          });
           const snapshot = await backend.read();
           if (epoch.current !== currentEpoch) return;
           data = snapshot.workspace;
@@ -87,6 +94,8 @@ export function useWorkspace() {
           );
           localStorage.setItem(`vexa-workspace-${nextUser.id}`, workspaceOwner);
         } else {
+          roleRef.current = "owner";
+          setRole("owner");
           setOwner(null);
           setSharedWorkspaces([]);
           const saved = localStorage.getItem(STORAGE_KEY);
@@ -132,6 +141,7 @@ export function useWorkspace() {
     (action: SetStateAction<Workspace>) => {
       if (blocked.current) return;
       const next = typeof action === "function" ? action(current.current) : action;
+      if (!canUpdateWorkspace(roleRef.current, current.current, next)) return;
       if (cloud.current) cloud.current.edit(next);
       else display(next);
     },
@@ -278,6 +288,7 @@ export function useWorkspace() {
     user,
     saveDisplayName,
     owner,
+    role,
     sharedWorkspaces,
     ready,
     error,

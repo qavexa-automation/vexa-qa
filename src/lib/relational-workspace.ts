@@ -1,6 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { emptyWorkspace, getDepartmentSection, parseWorkspace, type Workspace } from "./model";
 import type { CloudBackend, CloudSnapshot } from "./cloud-workspace";
+import { workspaceRoleSchema, type WorkspaceRole } from "@/features/workspace-access";
 
 // Deleted projects keep readable history, while persisted foreign keys become NULL.
 // The HTTP envelope is JSON; each record is stored in a typed relational table.
@@ -60,7 +61,9 @@ export function relationalBackend(
   client: SupabaseClient,
   workspaceOwner: string,
   userId: string,
+  onRole?: (role: WorkspaceRole) => void,
 ): CloudBackend {
+  let role: WorkspaceRole = workspaceOwner === userId ? "owner" : "developer";
   return {
     read: async () => {
       const result = await client.rpc("read_qa_workspace", { workspace_owner: workspaceOwner });
@@ -68,11 +71,22 @@ export function relationalBackend(
         throw Object.assign(new Error(result.error.message), {
           retryable: result.status === 0 || result.status >= 500,
         });
-      return parseCloudSnapshot(result.data, workspaceOwner === userId);
+      const snapshot = parseCloudSnapshot(result.data, workspaceOwner === userId);
+      if (workspaceOwner === userId) role = "owner";
+      else {
+        const parsed = workspaceRoleSchema.safeParse(result.data?.role);
+        if (!parsed.success || parsed.data === "owner")
+          throw new Error("Unable to verify workspace permissions. Apply the developer access migration.");
+        role = parsed.data;
+      }
+      onRole?.(role);
+      return snapshot;
     },
     save: async (workspace, revision) => {
-      const result = await client.rpc("save_qa_workspace", {
-        payload: workspaceForSave(workspace),
+      const result = await client.rpc(role === "developer" ? "save_qa_developer_remarks" : "save_qa_workspace", {
+        payload: role === "developer"
+          ? workspace.tests.map((test) => ({ id: test.id, developerRemarks: test.developerRemarks ?? "" }))
+          : workspaceForSave(workspace),
         expected_revision: revision,
         workspace_owner: workspaceOwner,
       });

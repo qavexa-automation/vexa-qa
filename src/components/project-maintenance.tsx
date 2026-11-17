@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { Check, FolderKanban, Plus, X } from "lucide-react";
 import { getDepartmentSection, PROJECT_STATUSES, type Project } from "@/lib/model";
 import { OptionCombobox } from "@/components/forms/option-combobox";
@@ -32,10 +32,23 @@ export default function ProjectMaintenance({
   onNotice: (message: string) => void;
 }) {
   const [details, setDetails] = useState<ProjectDetails>(blankProject);
+  // The form opens on demand: Add project, or Edit from a row.
+  const [editorOpen, setEditorOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [error, setError] = useState("");
   const nameInput = useRef<HTMLInputElement>(null);
+  const newButton = useRef<HTMLButtonElement>(null);
+
+  // Move focus only when the form opens, closes, or switches record, not on page load.
+  const lastEditorState = useRef(`${editorOpen}:${editingId}`);
+  useEffect(() => {
+    const state = `${editorOpen}:${editingId}`;
+    if (state === lastEditorState.current) return;
+    lastEditorState.current = state;
+    if (editorOpen) nameInput.current?.focus();
+    else newButton.current?.focus();
+  }, [editorOpen, editingId]);
   const query = search.trim().toLowerCase();
   const filtered = projects.filter((project) =>
     [project.name, getDepartmentSection(project), project.developer, project.status ?? "Not Started"].some((value) =>
@@ -48,6 +61,11 @@ export default function ProjectMaintenance({
     setDetails(blankProject());
     setEditingId(null);
     setError("");
+  }
+
+  function closeEditor() {
+    reset();
+    setEditorOpen(false);
   }
 
   function save(event: FormEvent<HTMLFormElement>) {
@@ -74,14 +92,23 @@ export default function ProjectMaintenance({
   }
 
   return (
-    <div className="project-maintenance">
+    <div className={editorOpen ? "project-maintenance" : "flex flex-col gap-[22px]"}>
+      {editorOpen && (
       <Panel
         className="project-editor"
         eyebrow="PROJECT DIRECTORY"
         title={<>{editingId ? "Edit project" : "Add project"}</>}
         action={
           <>
-            <FolderKanban aria-hidden="true" className="size-5 text-muted-foreground" />
+            <Button
+              type="button"
+              size="icon"
+              variant="ghost"
+              aria-label={editingId ? "Close edit project form" : "Close add project form"}
+              onClick={closeEditor}
+            >
+              <X aria-hidden="true" />
+            </Button>
           </>
         }
       >
@@ -142,21 +169,33 @@ export default function ProjectMaintenance({
               {editingId ? <Check aria-hidden="true" /> : <Plus aria-hidden="true" />}
               {editingId ? "Save project" : "Add project"}
             </Button>
-            {editingId && (
-              <Button type="button" variant="outline" onClick={reset}>
-                <X aria-hidden="true" />
-                Cancel
-              </Button>
-            )}
+            <Button type="button" variant="outline" onClick={closeEditor}>
+              <X aria-hidden="true" />
+              Cancel
+            </Button>
           </div>
         </form>
       </Panel>
+      )}
 
       <Panel
         className="project-directory"
         title={<>Project records</>}
         action={
           <>
+            {!editorOpen && (
+              <Button
+                ref={newButton}
+                type="button"
+                onClick={() => {
+                  reset();
+                  setEditorOpen(true);
+                }}
+              >
+                <Plus aria-hidden="true" />
+                Add project
+              </Button>
+            )}
             <span className="text-xs font-medium tracking-wide text-muted-foreground">
               {query ? `${filtered.length} OF ` : ""}
               {projects.length} PROJECT{projects.length === 1 ? "" : "S"}
@@ -183,6 +222,7 @@ export default function ProjectMaintenance({
               projects={filtered}
               onEdit={(project) => {
                 setEditingId(project.id);
+                setEditorOpen(true);
                 setDetails({
                   name: project.name,
                   department: getDepartmentSection(project),
@@ -191,7 +231,6 @@ export default function ProjectMaintenance({
                 });
                 setDeletingId(null);
                 setError("");
-                nameInput.current?.focus();
               }}
               onDelete={(project) => setDeletingId(project.id)}
               onUpdate={(project) => {
@@ -211,7 +250,7 @@ export default function ProjectMaintenance({
               <>
                 {query
                   ? "Search by project name, department/section, developer, or status."
-                  : "Add your first project using the form."}
+                  : "Choose Add project to record your first project."}
               </>
             }
           />

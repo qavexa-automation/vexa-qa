@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { ArrowRight, Check, Plus, Rocket, X } from "lucide-react";
 import {
   DEPLOYMENT_ENVIRONMENTS,
@@ -53,12 +53,25 @@ export default function DeploymentTracker({
   onManageProjects: () => void;
 }) {
   const [details, setDetails] = useState<Details>(blankDetails);
+  // The form opens on demand: Add deployment, or Edit from a row.
+  const [editorOpen, setEditorOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [projectFilter, setProjectFilter] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
   const [error, setError] = useState("");
   const projectInput = useRef<HTMLButtonElement>(null);
+  const newButton = useRef<HTMLButtonElement>(null);
+
+  // Move focus only when the form opens, closes, or switches record, not on page load.
+  const lastEditorState = useRef(`${editorOpen}:${editingId}`);
+  useEffect(() => {
+    const state = `${editorOpen}:${editingId}`;
+    if (state === lastEditorState.current) return;
+    lastEditorState.current = state;
+    if (editorOpen) projectInput.current?.focus();
+    else newButton.current?.focus();
+  }, [editorOpen, editingId]);
   const editing = deployments.find((deployment) => deployment.id === editingId);
   const selectedProject = projects.find((project) => project.id === details.projectId);
   const projectName =
@@ -86,6 +99,10 @@ export default function DeploymentTracker({
     setDetails(blankDetails());
     setEditingId(null);
     setError("");
+  }
+  function closeEditor() {
+    reset();
+    setEditorOpen(false);
   }
   function save(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -121,12 +138,21 @@ export default function DeploymentTracker({
 
   return (
     <div className="deployment-layout">
+      {editorOpen && (
       <Panel
         eyebrow="RELEASE CONTROL"
         title={<>{editingId ? "Edit deployment" : "Add deployment"}</>}
         action={
           <>
-            <Rocket aria-hidden="true" className="size-5 text-muted-foreground" />
+            <Button
+              type="button"
+              size="icon"
+              variant="ghost"
+              aria-label={editingId ? "Close edit deployment form" : "Close add deployment form"}
+              onClick={closeEditor}
+            >
+              <X aria-hidden="true" />
+            </Button>
           </>
         }
       >
@@ -226,15 +252,14 @@ export default function DeploymentTracker({
               {editingId ? <Check aria-hidden="true" /> : <Plus aria-hidden="true" />}
               {editingId ? "Save deployment" : "Add deployment"}
             </Button>
-            {editingId && (
-              <Button type="button" variant="outline" onClick={reset}>
-                <X aria-hidden="true" />
-                Cancel
-              </Button>
-            )}
+            <Button type="button" variant="outline" onClick={closeEditor}>
+              <X aria-hidden="true" />
+              Cancel
+            </Button>
           </div>
         </form>
       </Panel>
+      )}
       <Panel
         title={
           <>
@@ -244,6 +269,19 @@ export default function DeploymentTracker({
         }
         action={
           <>
+            {!editorOpen && (
+              <Button
+                ref={newButton}
+                type="button"
+                onClick={() => {
+                  reset();
+                  setEditorOpen(true);
+                }}
+              >
+                <Plus aria-hidden="true" />
+                Add deployment
+              </Button>
+            )}
             <div className="flex flex-wrap gap-2">
               <FilterCombobox
                 allLabel="All projects"
@@ -281,6 +319,7 @@ export default function DeploymentTracker({
             deployments={filtered}
             onEdit={(deployment) => {
               setEditingId(deployment.id);
+              setEditorOpen(true);
               setDetails({
                 projectId: deployment.projectId,
                 environment: deployment.environment,
@@ -291,7 +330,6 @@ export default function DeploymentTracker({
               });
               setDeletingId(null);
               setError("");
-              projectInput.current?.focus();
             }}
             onDelete={(deployment) => setDeletingId(deployment.id)}
             onUpdate={(deployment) => {
@@ -312,7 +350,7 @@ export default function DeploymentTracker({
               <>
                 {deployments.length
                   ? "Adjust your project, status, or search filters."
-                  : "Record your first deployment using the form above."}
+                  : "Choose Add deployment to record your first release."}
               </>
             }
           />

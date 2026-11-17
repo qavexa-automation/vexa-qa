@@ -22,6 +22,7 @@ export function InlineStatusSelect<TValue extends string>({
   label,
   onChange,
   disabled = false,
+  readOnly = false,
   className,
 }: {
   value: TValue;
@@ -31,8 +32,10 @@ export function InlineStatusSelect<TValue extends string>({
   label: string;
   onChange: (value: TValue) => void;
   disabled?: boolean;
+  readOnly?: boolean;
   className?: string;
 }) {
+  if (readOnly) return <StatusBadge label={value} tone={tone(value)} />;
   return (
     <Combobox
       disabled={disabled}

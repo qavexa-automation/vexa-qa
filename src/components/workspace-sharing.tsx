@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
-import { Copy, RefreshCw, Users, X } from "lucide-react";
+import { Copy, Users } from "lucide-react";
 import { ConfirmDialog } from "@/components/forms/confirm-dialog";
 import { OptionCombobox } from "@/components/forms/option-combobox";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -9,9 +9,9 @@ import { Field, FieldDescription, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { supabase } from "@/lib/supabase";
 import type { SharedWorkspace } from "@/lib/use-workspace";
+import { memberRoleOptions, memberRoleSchema, WorkspaceMembers, type MemberRole, type WorkspaceMember, type WorkspaceRole } from "@/features/workspace-access";
 
-type Member = { member_id: string; member_email: string };
-type Invite = { code: string; expires_at: string };
+type Invite = { code: string; expires_at: string; role: string };
 
 export default function WorkspaceSharing({
   userId,
@@ -20,6 +20,7 @@ export default function WorkspaceSharing({
   onSwitch,
   onJoin,
   flush,
+  role,
 }: {
   userId: string;
   owner: string;
@@ -27,11 +28,14 @@ export default function WorkspaceSharing({
   onSwitch: (owner: string) => Promise<void>;
   onJoin: (code: string) => Promise<void>;
   flush: () => Promise<void>;
+  role: WorkspaceRole;
 }) {
   const [code, setCode] = useState("");
   const [invite, setInvite] = useState<Invite | null>(null);
-  const [members, setMembers] = useState<Member[]>([]);
-  const [removing, setRemoving] = useState<Member | null>(null);
+  const [members, setMembers] = useState<WorkspaceMember[]>([]);
+  const [removing, setRemoving] = useState<WorkspaceMember | null>(null);
+  const [inviteRole, setInviteRole] = useState<MemberRole>("developer");
+  const [confirmInvite, setConfirmInvite] = useState(false);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
   const [problem, setProblem] = useState("");
@@ -43,12 +47,12 @@ export default function WorkspaceSharing({
     void Promise.all([
       supabase
         .from("qa_workspace_invites")
-        .select("code, expires_at")
+        .select("code, expires_at, role")
         .eq("workspace_owner", userId)
         .maybeSingle(),
       supabase
         .from("qa_workspace_members")
-        .select("member_id, member_email")
+        .select("member_id, member_email, role")
         .eq("workspace_owner", userId),
     ]).then(([invitation, team]) => {
       if (!active) return;
@@ -58,7 +62,7 @@ export default function WorkspaceSharing({
         );
       else {
         setInvite(invitation.data);
-        setMembers(team.data ?? []);
+        setMembers((team.data ?? []).map((member) => ({ ...member, role: memberRoleSchema.parse(member.role) })));
       }
     });
     return () => {
@@ -79,7 +83,7 @@ export default function WorkspaceSharing({
     }
   };
 
-  const removeMember = (member: Member) =>
+  const removeMember = (member: WorkspaceMember) =>
     run(async () => {
       const result = await supabase!
         .from("qa_workspace_members")
@@ -100,8 +104,8 @@ export default function WorkspaceSharing({
         <Users size={18} /> Shared workspaces
       </h3>
       <p>
-        Everyone who joins can view and edit projects, quests, tests, modifications, and
-        deployments. Saved changes appear automatically for teammates.
+        Editors manage QA records. Developers view modifications and edit only Developer remarks
+        in Test Lab. Saved changes appear automatically for teammates.
       </p>
       <fieldset className="mt-4 flex min-w-0 flex-col gap-5 border-0 p-0" disabled={busy}>
         <OptionCombobox
@@ -120,6 +124,7 @@ export default function WorkspaceSharing({
         {own ? (
           <>
             <div className="flex flex-col items-start gap-2">
+              <OptionCombobox id="invite-role" label="Invite access" placeholder="Select invite access" options={memberRoleOptions} value={inviteRole} onChange={(value) => setInviteRole(memberRoleSchema.parse(value))} />
               <p className="text-sm text-muted-foreground">
                 Share an invite code with your team. Codes expire after 7 days. Creating a new code
                 replaces the previous one; existing members keep access.
@@ -127,24 +132,7 @@ export default function WorkspaceSharing({
               <Button
                 type="button"
                 variant="outline"
-                onClick={() =>
-                  void run(async () => {
-                    if (!supabase) return;
-                    await flush();
-                    const result = await supabase.rpc("create_qa_workspace_invite");
-                    if (result.error) throw new Error(result.error.message);
-                    const saved = await supabase
-                      .from("qa_workspace_invites")
-                      .select("code, expires_at")
-                      .eq("workspace_owner", userId)
-                      .single();
-                    if (saved.error) throw new Error(saved.error.message);
-                    setInvite(saved.data);
-                    setMessage(
-                      "Invite code ready. Send it to the teammates you want to give edit access.",
-                    );
-                  })
-                }
+                onClick={() => setConfirmInvite(true)}
               >
                 {invite ? "Create new invite code" : "Create invite code"}
               </Button>
@@ -161,7 +149,7 @@ export default function WorkspaceSharing({
                     onFocus={(e) => e.target.select()}
                   />
                   <FieldDescription>
-                    Expires {new Date(invite.expires_at).toLocaleString()}
+                    {invite.role === "developer" ? "Developer access" : "Editor access"} · Expires {new Date(invite.expires_at).toLocaleString()}
                   </FieldDescription>
                 </Field>
                 <div className="flex flex-wrap gap-2">
@@ -197,52 +185,26 @@ export default function WorkspaceSharing({
                 </div>
               </div>
             )}
-            <div className="flex flex-col gap-2">
-              <strong className="text-sm font-medium">Workspace members</strong>
-              <ul className="divide-y divide-border rounded-lg border border-border">
-                <li className="px-3 py-2 text-sm text-muted-foreground">You (owner)</li>
-                {members.map((member) => (
-                  <li
-                    key={member.member_id}
-                    className="flex items-center justify-between gap-3 px-3 py-2 text-sm"
-                  >
-                    <span className="min-w-0 truncate">{member.member_email}</span>
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="ghost"
-                      aria-label={`Remove ${member.member_email}`}
-                      onClick={() => setRemoving(member)}
-                    >
-                      <X aria-hidden="true" /> Remove
-                    </Button>
-                  </li>
-                ))}
-              </ul>
-              <Button
-                type="button"
-                variant="outline"
-                className="self-start"
-                onClick={() =>
-                  void run(async () => {
-                    const result = await supabase!
-                      .from("qa_workspace_members")
-                      .select("member_id, member_email")
-                      .eq("workspace_owner", userId);
-                    if (result.error) throw new Error(result.error.message);
-                    setMembers(result.data ?? []);
-                    setMessage("Member list refreshed.");
-                  })
-                }
-              >
-                <RefreshCw aria-hidden="true" />
-                Refresh members
-              </Button>
-            </div>
+            <WorkspaceMembers
+              members={members}
+              onRemove={setRemoving}
+              onRefresh={() => void run(async () => {
+                const result = await supabase!.from("qa_workspace_members").select("member_id, member_email, role").eq("workspace_owner", userId);
+                if (result.error) throw new Error(result.error.message);
+                setMembers((result.data ?? []).map((member) => ({ ...member, role: memberRoleSchema.parse(member.role) })));
+                setMessage("Member list refreshed.");
+              })}
+              onRoleChange={(member, nextRole) => void run(async () => {
+                const result = await supabase!.rpc("set_qa_workspace_member_role", { member_id: member.member_id, member_role: nextRole });
+                if (result.error) throw new Error(result.error.message);
+                setMembers((previous) => previous.map((entry) => entry.member_id === member.member_id ? { ...entry, role: nextRole } : entry));
+                setMessage(`Access updated for ${member.member_email}.`);
+              })}
+            />
           </>
         ) : (
           <p className="text-sm text-muted-foreground">
-            You have edit access to this team workspace. The owner manages invitations and members.
+            {role === "developer" ? "You have Developer access: view modifications and edit only Developer remarks in Test Lab." : "You have Editor access to this team workspace."} The owner manages invitations and members.
           </p>
         )}
         <form
@@ -282,6 +244,26 @@ export default function WorkspaceSharing({
           <AlertDescription>{problem}</AlertDescription>
         </Alert>
       )}
+      <ConfirmDialog
+        open={confirmInvite}
+        title={`Create a code with ${inviteRole === "developer" ? "Developer" : "Editor"} access?`}
+        description={inviteRole === "developer" ? "Anyone signed in with this code can view modifications and edit Developer remarks in Test Lab. Existing members keep their current access." : "Anyone signed in with this code can create, change, and delete all QA records. Existing members keep their current access."}
+        confirmLabel="Create invite code"
+        onCancel={() => setConfirmInvite(false)}
+        onConfirm={() => {
+          setConfirmInvite(false);
+          void run(async () => {
+            if (!supabase) return;
+            await flush();
+            const result = await supabase.rpc("create_qa_workspace_invite", { member_role: inviteRole });
+            if (result.error) throw new Error(result.error.message);
+            const saved = await supabase.from("qa_workspace_invites").select("code, expires_at, role").eq("workspace_owner", userId).single();
+            if (saved.error) throw new Error(saved.error.message);
+            setInvite(saved.data);
+            setMessage(`Invite code ready with ${inviteRole === "developer" ? "Developer" : "Editor"} access.`);
+          });
+        }}
+      />
       <ConfirmDialog
         open={Boolean(removing)}
         title={`Remove ${removing?.member_email ?? "this member"}?`}

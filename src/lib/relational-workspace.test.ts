@@ -46,6 +46,14 @@ const projectStatusMigration = readFileSync(
   new URL("../../supabase/migrations/20261108100247_project_status.sql", import.meta.url),
   "utf8",
 );
+const developerAccessMigration = readFileSync(
+  new URL("../../supabase/migrations/20261117080132_developer_access_and_test_remarks.sql", import.meta.url),
+  "utf8",
+);
+const testAttachmentsMigration = readFileSync(
+  new URL("../../supabase/migrations/20261117173000_test_case_attachments.sql", import.meta.url),
+  "utf8",
+);
 
 function fixture(): Workspace {
   return {
@@ -76,6 +84,19 @@ function fixture(): Workspace {
         expected: "Dashboard is visible",
         status: "Not Tested",
         lastRun: null,
+        attachments: [
+          {
+            id: "test-file-1",
+            name: "evidence.png",
+            storedName: "evidence.webp",
+            contentType: "image/webp",
+            size: 310000,
+            storedSize: 44100,
+            encoding: "webp",
+            path: `${A}/TC-001/test-file-1`,
+            uploadedAt: "2026-11-17T09:15:00.000Z",
+          },
+        ],
       },
     ],
     modifications: [
@@ -196,6 +217,8 @@ describe("relational workspace database", () => {
     `);
     await db.exec(attachmentsMigration);
     await db.exec(projectStatusMigration);
+    await db.exec(developerAccessMigration);
+    await db.exec(testAttachmentsMigration);
   }, 30000);
   afterAll(async () => {
     await db?.close();
@@ -233,17 +256,115 @@ describe("relational workspace database", () => {
       return result.rows[0].snapshot;
     });
   }
-  async function invite() {
+  async function invite(role = "editor") {
     return as(
       A,
       async () =>
-        (await db.query<{ code: string }>("select public.create_qa_workspace_invite() as code"))
+        (await db.query<{ code: string }>("select public.create_qa_workspace_invite($1) as code", [role]))
           .rows[0].code,
     );
   }
   async function join(id: string, code: string) {
     return as(id, () => db.query("select public.join_qa_workspace($1::uuid)", [code]));
   }
+
+  const setRole = (caller: string, member: string, role: string) => as(caller, () => db.query(
+    "select public.set_qa_workspace_member_role($1::uuid, $2)", [member, role],
+  ));
+  const saveRemarks = (caller: string, payload: unknown, revision: number, owner = A) => as(caller, async () => {
+    const result = await db.query<{ revision: number }>(
+      "select public.save_qa_developer_remarks($1::jsonb, $2, $3::uuid) as revision", [JSON.stringify(payload), revision, owner],
+    );
+    return Number(result.rows[0].revision);
+  });
+
+  it("grants Developer membership from an invite without allowing rejoin escalation", async () => {
+    await save(A);
+    await join(B, await invite("developer"));
+    expect(await read(B, A)).toMatchObject({ role: "developer" });
+    await join(B, await invite("editor"));
+    expect(await read(B, A)).toMatchObject({ role: "developer" });
+    await join(C, await invite());
+    expect(await read(C, A)).toMatchObject({ role: "editor" });
+    expect(await read(A)).toMatchObject({ role: "owner" });
+  });
+
+  it("lets developers save only remarks, keeping every other record and field intact", async () => {
+    await save(A);
+    await join(B, await invite("developer"));
+    const before = parseCloudSnapshot(await read(B, A), false).workspace;
+    expect(await saveRemarks(B, [{ id: "TC-001", developerRemarks: "Fixed validation\nPlease retest" }], 1)).toBe(2);
+    const after = parseCloudSnapshot(await read(A), true).workspace;
+    expect(after).toEqual({ ...before, tests: [{ ...before.tests[0], developerRemarks: "Fixed validation\nPlease retest" }] });
+    await expect(save(B, after, 2, A)).rejects.toThrow(/Editor access/);
+    await expect(as(B, () => db.query("update public.qa_test_cases set developer_remarks = 'bypass' where workspace_owner = $1", [A]))).rejects.toThrow();
+    await expect(saveRemarks(B, [{ id: "TC-001", developerRemarks: "Stale" }], 1)).rejects.toMatchObject({ code: "40001" });
+    await saveRemarks(B, [{ id: "TC-001", developerRemarks: "" }], 2);
+    expect(parseCloudSnapshot(await read(A), true).workspace.tests[0].developerRemarks).toBe("");
+  });
+
+  it("rejects malformed, cross-workspace and protected-field remark payloads atomically", async () => {
+    await save(A);
+    const other = fixture();
+    other.tests[0].id = "TC-OTHER";
+    await save(C, other);
+    await join(B, await invite("developer"));
+    const invalid = [
+      null, {}, [{ id: "TC-001", developerRemarks: null }], [{ id: "TC-001", developerRemarks: 1 }],
+      [{ id: "TC-001", developerRemarks: "Changed", status: "Passed" }],
+      [{ id: "TC-001", developerRemarks: "Valid" }, { id: "TC-OTHER", developerRemarks: "Cross workspace" }],
+      [{ id: "TC-001", developerRemarks: "A" }, { id: "TC-001", developerRemarks: "B" }],
+      [{ developerRemarks: "No ID" }], ["invalid"],
+    ];
+    for (const payload of invalid) await expect(saveRemarks(B, payload, 1)).rejects.toBeTruthy();
+    expect(parseCloudSnapshot(await read(A), true)).toMatchObject({ revision: 1, workspace: { tests: [{ developerRemarks: "", status: "Not Tested" }] } });
+    await expect(saveRemarks(C, [{ id: "TC-001", developerRemarks: "Unauthorized" }], 1)).rejects.toMatchObject({ code: "42501" });
+    await expect(as(null, () => db.query("select public.save_qa_developer_remarks('[]', 1, $1::uuid)", [A]), "anon")).rejects.toThrow();
+  });
+
+  it("allows attachment previews but rejects Developer uploads and deletes", async () => {
+    await save(A);
+    await join(B, await invite("developer"));
+    const path = `${A}/change-1/file-1`;
+    await as(A, () => db.query("insert into storage.objects values ('modification-attachments', $1)", [path]));
+    const visible = await as(B, () => db.query("select * from storage.objects where name = $1", [path]));
+    expect(visible.rows).toHaveLength(1);
+    await expect(as(B, () => db.query("insert into storage.objects values ('modification-attachments', $1)", [`${A}/change-1/new`]))).rejects.toThrow();
+    await as(B, () => db.query("delete from storage.objects where name = $1", [path]));
+    expect((await db.query("select * from storage.objects where name = $1", [path])).rows).toHaveLength(1);
+  });
+
+  it("restricts role changes to the owner and enforces changes without changing the revision", async () => {
+    await save(A);
+    await join(B, await invite("developer"));
+    await join(C, await invite("editor"));
+    await expect(setRole(B, B, "editor")).rejects.toMatchObject({ code: "42501" });
+    await expect(setRole(C, B, "editor")).rejects.toMatchObject({ code: "42501" });
+    await expect(setRole(A, B, "owner")).rejects.toThrow();
+    await expect(as(B, () => db.query("update public.qa_workspace_members set role = 'editor' where member_id = $1", [B]))).rejects.toThrow();
+    await setRole(A, B, "editor");
+    expect(await read(B, A)).toMatchObject({ role: "editor", revision: 1 });
+    await save(B, fixture(), 1, A);
+    await setRole(A, B, "developer");
+    await expect(save(B, fixture(), 2, A)).rejects.toMatchObject({ code: "42501" });
+    expect(await read(B, A)).toMatchObject({ role: "developer", revision: 2 });
+    await as(A, () => db.query("delete from public.qa_workspace_members where member_id = $1", [B]));
+    expect(await read(B, A)).toBeNull();
+    await expect(saveRemarks(B, [], 2)).rejects.toMatchObject({ code: "42501" });
+  });
+
+  it("round-trips remarks and preserves them when an older editor omits the field", async () => {
+    const workspace = fixture();
+    workspace.tests[0].developerRemarks = "Developer notes";
+    await save(A, workspace);
+    delete workspace.tests[0].developerRemarks;
+    workspace.tests[0].expected = "Updated QA expectation";
+    await save(A, workspace, 1);
+    expect(parseCloudSnapshot(await read(A), true).workspace.tests[0]).toMatchObject({ developerRemarks: "Developer notes", expected: "Updated QA expectation" });
+    workspace.tests[0].developerRemarks = 123 as never;
+    await expect(save(A, workspace, 2)).rejects.toThrow(/remarks must be text/);
+    expect(parseCloudSnapshot(await read(A), true).revision).toBe(2);
+  });
 
   it("round-trips every project status through revision-checked saves", async () => {
     const workspace = fixture();
@@ -324,7 +445,7 @@ describe("relational workspace database", () => {
     const tables = await db.query<{ relname: string; relrowsecurity: boolean }>(
       "select relname, relrowsecurity from pg_class where relnamespace = 'public'::regnamespace and relkind = 'r'",
     );
-    expect(tables.rows).toHaveLength(12);
+    expect(tables.rows).toHaveLength(13);
     expect(tables.rows.every((t) => t.relrowsecurity)).toBe(true);
     expect(
       (
@@ -451,6 +572,29 @@ describe("relational workspace database", () => {
     }
     // Every rejected save rolled back, so the stored revision never advanced.
     expect(parseCloudSnapshot(await read(A), true).revision).toBe(2);
+  });
+
+  it("round-trips test case attachments and clears them with their record", async () => {
+    const workspace = fixture();
+    await save(A, workspace);
+    expect(parseCloudSnapshot(await read(A), true).workspace.tests[0].attachments).toEqual(
+      workspace.tests[0].attachments,
+    );
+
+    // Detaching leaves the test case in place with no files.
+    const detached = {
+      ...workspace,
+      tests: [{ ...workspace.tests[0], attachments: [] }],
+    };
+    await save(A, detached, 1);
+    expect(parseCloudSnapshot(await read(A), true).workspace.tests[0].attachments).toEqual([]);
+    expect((await db.query("select count(*)::int as n from public.qa_test_case_attachments")).rows[0]).toEqual({ n: 0 });
+
+    // Deleting the record cascades its rows away.
+    await save(A, workspace, 2);
+    expect((await db.query("select count(*)::int as n from public.qa_test_case_attachments")).rows[0]).toEqual({ n: 1 });
+    await save(A, { ...workspace, tests: [] }, 3);
+    expect((await db.query("select count(*)::int as n from public.qa_test_case_attachments")).rows[0]).toEqual({ n: 0 });
   });
 
   it("round-trips attachment metadata, detaches one file, and clears them with their record", async () => {
@@ -676,8 +820,9 @@ describe("relational workspace database", () => {
 });
 
 describe("relational transport", () => {
-  function backendWithResponse(data: unknown, status = 200) {
+  function backendWithResponse(data: unknown, status = 200, userId = A) {
     const requests: { url: string; body: Record<string, unknown> }[] = [];
+    const roles: string[] = [];
     const client = createClient("https://vexa.example", "sb_publishable_test", {
       auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
       global: {
@@ -690,8 +835,32 @@ describe("relational transport", () => {
         },
       },
     });
-    return { backend: relationalBackend(client, A, A), requests };
+    return { backend: relationalBackend(client, A, userId, (role) => roles.push(role)), requests, roles, respond: (next: unknown) => { data = next; } };
   }
+
+  it("uses the remarks-only RPC for developers and refreshes roles even at the same revision", async () => {
+    const transport = backendWithResponse({ workspace: fixture(), revision: 2, role: "developer" }, 200, B);
+    await transport.backend.read();
+    expect(transport.roles).toEqual(["developer"]);
+    transport.respond(3);
+    await transport.backend.save(fixture(), 2);
+    expect(transport.requests[1]).toEqual({
+      url: "https://vexa.example/rest/v1/rpc/save_qa_developer_remarks",
+      body: { payload: [{ id: "TC-001", developerRemarks: "" }], expected_revision: 2, workspace_owner: A },
+    });
+    transport.respond({ workspace: fixture(), revision: 3, role: "editor" });
+    await transport.backend.read();
+    transport.respond({ workspace: fixture(), revision: 3, role: "developer" });
+    await transport.backend.read();
+    expect(transport.roles).toEqual(["developer", "editor", "developer"]);
+  });
+
+  it("fails closed when a shared workspace role cannot be verified", async () => {
+    for (const role of [undefined, "owner", "invalid"]) {
+      const transport = backendWithResponse({ workspace: fixture(), revision: 1, role }, 200, B);
+      await expect(transport.backend.read()).rejects.toThrow(/verify workspace permissions/);
+    }
+  });
 
   it("calls the relational read/save RPCs through the real Supabase HTTP client", async () => {
     const reader = backendWithResponse({ workspace: fixture(), revision: 2 });

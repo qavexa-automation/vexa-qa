@@ -1,3 +1,5 @@
+import type { Modification } from "./model";
+
 const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
 const manilaDay = new Intl.DateTimeFormat("en-CA", {
   timeZone: "Asia/Manila",
@@ -36,4 +38,19 @@ const dateFormat = new Intl.DateTimeFormat("en-PH", {
 export function formatModificationDate(value?: string | null) {
   const date = toModificationDate(value);
   return date ? dateFormat.format(new Date(`${date}T00:00:00Z`)) : "—";
+}
+
+/**
+ * Places a saved modification in the list. An edit replaces that record where it already sits;
+ * a new record goes last, so the earliest modification stays at the top of the tracker and the
+ * list reads in the order the work was requested.
+ */
+export function saveModification(
+  modifications: Modification[],
+  modification: Modification,
+  editingId: string | null,
+): Modification[] {
+  return editingId
+    ? modifications.map((entry) => (entry.id === editingId ? modification : entry))
+    : [...modifications, modification];
 }

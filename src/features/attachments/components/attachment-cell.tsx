@@ -20,6 +20,7 @@ export function AttachmentCell({
   subject,
   busy = false,
   disabled = false,
+  readOnly = false,
   onAdd,
   onRemove,
   onLoad,
@@ -29,6 +30,7 @@ export function AttachmentCell({
   subject: string;
   busy?: boolean;
   disabled?: boolean;
+  readOnly?: boolean;
   onAdd: (files: File[]) => void;
   onRemove: (attachment: Attachment) => void;
   onLoad: (attachment: Attachment) => Promise<Blob>;
@@ -38,7 +40,7 @@ export function AttachmentCell({
   const previewTrigger = useRef<HTMLButtonElement | null>(null);
   const picker = useRef<HTMLInputElement>(null);
   const full = attachments.length >= MAX_ATTACHMENTS_PER_RECORD;
-  const locked = disabled || busy;
+  const locked = readOnly || disabled || busy;
 
   function accept(files: FileList | null | undefined) {
     const list = Array.from(files ?? []);
@@ -59,12 +61,12 @@ export function AttachmentCell({
 
   return (
     <div
-      aria-label={`Attachments for ${subject}. Drop or paste a file here, or use the attach button.`}
+      aria-label={`Attachments for ${subject}.${readOnly ? " Preview attached files." : " Drop or paste a file here, or use the attach button."}`}
       className={cn(
         "flex min-w-0 flex-col gap-1 rounded-md border border-dashed border-transparent p-1 transition-colors",
         "focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:outline-none",
         dragging && "border-brand bg-brand-subtle",
-        locked && "opacity-60",
+        locked && !readOnly && "opacity-60",
       )}
       onDragLeave={() => setDragging(false)}
       onDragOver={(event) => {
@@ -81,6 +83,7 @@ export function AttachmentCell({
         accept="*/*"
         className="sr-only"
         multiple
+        disabled={locked}
         onChange={(event) => {
           accept(event.target.files);
           event.target.value = "";
@@ -118,7 +121,7 @@ export function AttachmentCell({
                 {" · click to preview"}
               </TooltipContent>
             </Tooltip>
-            <IconButton
+            {!readOnly && <IconButton
               ariaLabel={`Remove attachment ${attachment.name} from ${subject}`}
               className="size-6 shrink-0"
               destructive
@@ -126,7 +129,7 @@ export function AttachmentCell({
               icon={Trash2}
               label="Remove attachment"
               onClick={() => onRemove(attachment)}
-            />
+            />}
           </div>
         );
       })}
@@ -136,7 +139,7 @@ export function AttachmentCell({
           Compressing…
         </span>
       )}
-      {!full && !busy && (
+      {!readOnly && !full && !busy && (
         <IconButton
           ariaLabel={`Attach a file to ${subject}`}
           className="size-6 self-start"

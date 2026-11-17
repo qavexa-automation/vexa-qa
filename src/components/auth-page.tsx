@@ -390,15 +390,25 @@ const groupClass = "h-11 rounded-lg";
 function BrandPanel() {
   return (
     <div className="vexa-auth-brand relative isolate flex flex-col justify-between overflow-hidden px-7 py-9 text-white sm:px-10 sm:py-12 lg:px-14 lg:py-14">
-      <p className="text-xl font-bold tracking-[0.18em]">VEXA</p>
-      <div className="my-7 flex flex-col gap-4 lg:my-4 lg:gap-6">
-        <p className="font-sans text-[2.1rem] leading-[1.1] font-extrabold tracking-tight sm:text-5xl lg:text-[3.4rem]">
-          Track. Verify.
-          <span className="block text-(--auth-mint-bright)">Execute.</span>
-        </p>
-        <QaIllustration />
+      {/* Decorative depth behind the copy: two drifting glows and a faint grid. */}
+      <div aria-hidden="true" className="pointer-events-none absolute inset-0 -z-10">
+        <span className="vexa-aurora vexa-aurora-b" />
+        <span className="vexa-aurora vexa-aurora-a" />
+        <span className="vexa-grid" />
       </div>
-      <p className="max-w-sm text-sm leading-relaxed text-white/85 sm:text-base">
+      <p className="vexa-rise vexa-rise-1 text-xl font-bold tracking-[0.18em]">VEXA</p>
+      <div className="my-7 flex flex-col gap-4 lg:my-4 lg:gap-6">
+        <p className="vexa-rise vexa-rise-2 font-sans text-[2.1rem] leading-[1.1] font-extrabold tracking-tight sm:text-5xl lg:text-[3.4rem]">
+          Track. Verify.
+          <span className="vexa-sheen block text-(--auth-mint-bright)">Execute.</span>
+        </p>
+        <div className="vexa-rise vexa-rise-3">
+          <div className="vexa-float">
+            <QaIllustration />
+          </div>
+        </div>
+      </div>
+      <p className="vexa-rise vexa-rise-4 max-w-sm text-sm leading-relaxed text-white/85 sm:text-base">
         A centralized platform for tracking QA tasks, developer updates, and client modification
         requests.
       </p>

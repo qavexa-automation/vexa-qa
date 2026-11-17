@@ -3,6 +3,7 @@ import { emptyWorkspace, parseWorkspace, type Modification, type Workspace } fro
 import {
   formatModificationDate,
   modificationDatesProblem,
+  saveModification,
   toModificationDate,
 } from "./modifications";
 import { mergeWorkspaces } from "./workspace-merge";
@@ -88,5 +89,27 @@ describe("modification dates", () => {
     expect(() => mergeWorkspaces(base, local, remote)).toThrow(
       "Both users changed modification m1 (modifiedAt)",
     );
+  });
+});
+
+describe("modification list order", () => {
+  it("adds a new modification last so the earliest stays at the top", () => {
+    const first = { ...modification(), id: "m1" };
+    const second = { ...modification(), id: "m2" };
+    const third = { ...modification(), id: "m3" };
+    const list = saveModification(saveModification([first], second, null), third, null);
+    expect(list.map((entry) => entry.id)).toEqual(["m1", "m2", "m3"]);
+  });
+
+  it("replaces an edited modification in place without moving it", () => {
+    const list = [
+      { ...modification(), id: "m1" },
+      { ...modification(), id: "m2" },
+      { ...modification(), id: "m3" },
+    ];
+    const edited = { ...modification(), id: "m2", description: "Updated" };
+    const saved = saveModification(list, edited, "m2");
+    expect(saved.map((entry) => entry.id)).toEqual(["m1", "m2", "m3"]);
+    expect(saved[1].description).toBe("Updated");
   });
 });

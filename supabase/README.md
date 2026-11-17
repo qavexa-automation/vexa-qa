@@ -22,6 +22,12 @@ Project lifecycle statuses require [`migrations/20261108100247_project_status.sq
 
 ## Tables
 
+Developer access and Test Lab remarks require [`migrations/20261117080132_developer_access_and_test_remarks.sql`](migrations/20261117080132_developer_access_and_test_remarks.sql), applied after project status. It adds constrained `editor` / `developer` roles to memberships and invitations (existing rows default to `editor`) and a non-null `qa_test_cases.developer_remarks` text column (existing rows default to empty text). Older editor clients that omit remarks preserve the stored value.
+
+Owners select invitation roles with `create_qa_workspace_invite(member_role)` and change existing members with `set_qa_workspace_member_role(member_id, member_role)`. Rejoining with a different invitation never changes an existing member's role. The read RPC returns the caller's current role independently of the workspace revision, so polling also detects role changes. Full workspace saves require owner or Editor access. Developers use `save_qa_developer_remarks(payload, expected_revision, workspace_owner)`, which accepts only existing test IDs and text remarks, checks membership, locks the revision, and rejects extra fields, duplicate IDs, and records outside the selected workspace. Direct table writes remain denied. Attachment uploads/deletes require owner or Editor access; authorized previews/downloads remain available to Developers. The UI presents Developers with Modification Tracker, Test Lab, and account settings; workspace reads remain scoped by existing membership RLS.
+
+Test Lab attachments require [`migrations/20261117173000_test_case_attachments.sql`](migrations/20261117173000_test_case_attachments.sql), applied after developer access. It adds `qa_test_case_attachments`, mirroring the modification attachment table with a cascading foreign key to `qa_test_cases`, and extends the save and read RPCs with it. No new bucket or storage policy is needed: objects stay keyed `<workspace owner>/<record id>/<attachment id>` in the existing private `modification-attachments` bucket, so the owner-prefixed policies already confine them, uploads and deletes still require owner or Editor access, and Developers keep preview and download only. Files are compressed in the browser exactly as modification attachments are. A workspace saved before this migration carries no test attachments array, which the save RPC treats as empty.
+
 | Table                         | Primary key                          | Stored data                                                                                                                                       |
 | ----------------------------- | ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `qa_workspaces`               | `user_id`                            | Owner, current sprint name/goal, revision, creation/update timestamps                                                                             |
@@ -36,6 +42,7 @@ Project lifecycle statuses require [`migrations/20261108100247_project_status.sq
 | `qa_activity`                 | `(workspace_owner, id)`              | Activity description, occurrence timestamp, kind                                                                                                  |
 | `qa_calendar_events`          | `(workspace_owner, id)`              | Project FK, title, activity kind, status, Manila start/end dates, all-day flag, start/end times, location, notes                                  |
 | `qa_modification_attachments` | `(workspace_owner, id)`              | Modification FK, original and stored file name, media type, original and stored byte size, compression encoding, Storage object path, upload time |
+| `qa_test_case_attachments`    | `(workspace_owner, id)`              | Test case FK, original and stored file name, media type, original and stored byte size, compression encoding, Storage object path, upload time |
 
 Entity tables retain display order and creation/update timestamps. Labels retain their display order. Foreign keys, membership lookups, and the main status/date filters have indexes.
 
@@ -67,7 +74,7 @@ erDiagram
 - Every entity key is scoped to its workspace. Composite project and issue foreign keys reject references into another owner's workspace, even if the caller belongs to both teams.
 - Record IDs remain text to preserve existing `VXA-...`, `TC-...`, and local UUID identifiers. Authentication identifiers remain UUIDs.
 - Project deletion clears only `project_id`, preserving quests, tests, modifications, deployments, and calendar activities. Titles and explicitly named project snapshots keep the history readable after deletion. Deleting a workspace or its owner cascades through owned records, memberships, and invites.
-- Developers and assignees are editable assignment names in this application. They are not auth accounts or authorization roles. Department/Section is a single free-text field. Creating artificial user or department records for these fields would change the product's meaning.
+- Project developers and assignees are editable assignment names, separate from auth accounts and membership roles. A matching assignment name does not grant the Developer access role. Department/Section is a single free-text field.
 - Labels are rows, with uniqueness per issue. Repeated or blank labels from the UI are normalized before saving.
 - Checks constrain quest types, priorities, statuses, environments, nonnegative integer XP, real deployment dates, and valid test-result/timestamp combinations. Passed/Failed tests require a last-run timestamp; Not Applicable/Not Tested require NULL.
 - Calendar activities are scheduled in a person's own working day, not at a global instant, so their dates and times are stored as `date` and `time` in Asia/Manila and never as `timestamptz`. Storing them as instants would silently move an activity when a reader's time zone differs. An all-day activity has no times at all rather than midnight placeholders.
@@ -81,7 +88,7 @@ erDiagram
 
 Each entity is individually queryable through the Data API using authorized SELECT requests. The existing UI still saves a workspace transaction as a unit. It does not issue separate browser writes to each entity table, which would allow partial saves and bypass the concurrency check.
 
-RLS is enabled on all twelve tables, and the attachments bucket has its own storage policies. Owners and members can read workspace content. Only owners can read/disable their invite codes and remove memberships. Content-table INSERT/UPDATE/DELETE privileges are revoked from client roles. Membership inserts and invite creation are also restricted to checked RPCs.
+RLS is enabled on all thirteen tables, and the attachments bucket has its own storage policies. Owners and members can read workspace content. Only owners can read/disable their invite codes and remove memberships. Content-table INSERT/UPDATE/DELETE privileges are revoked from client roles. Membership inserts and invite creation are also restricted to checked RPCs.
 
 Public RPCs use `SECURITY INVOKER`. The privileged save/invitation implementations live in `vexa_private`, use an empty search path, check `auth.uid()` themselves, and have explicit execution grants. Keep `vexa_private` out of the Data API's exposed schemas. Authorization never uses editable user metadata or the member email display snapshot.
 
