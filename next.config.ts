@@ -3,6 +3,7 @@ const nextConfig: NextConfig = {
   poweredByHeader: false,
   reactStrictMode: true,
   turbopack: { root: process.cwd() },
+  experimental: { agentUpgrade: "security" },
   async headers() {
     return [
       {
