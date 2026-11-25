@@ -3,7 +3,7 @@ import { PGlite } from "@electric-sql/pglite";
 import { createClient } from "@supabase/supabase-js";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { emptyWorkspace, PROJECT_STATUSES, type Workspace } from "./model";
-import { parseCloudSnapshot, readTeamCalendarWorkspace, relationalBackend, workspaceForSave } from "./relational-workspace";
+import { listSharedWorkspaces, parseCloudSnapshot, readTeamCalendarWorkspace, relationalBackend, workspaceForSave } from "./relational-workspace";
 
 const A = "10000000-0000-4000-8000-000000000001";
 const B = "10000000-0000-4000-8000-000000000002";
@@ -52,6 +52,10 @@ const developerAccessMigration = readFileSync(
 );
 const testAttachmentsMigration = readFileSync(
   new URL("../../supabase/migrations/20261117173000_test_case_attachments.sql", import.meta.url),
+  "utf8",
+);
+const ownerNamesMigration = readFileSync(
+  new URL("../../supabase/migrations/20261125090000_workspace_owner_names.sql", import.meta.url),
   "utf8",
 );
 
@@ -181,7 +185,7 @@ describe("relational workspace database", () => {
       create role anon nologin;
       create role authenticated nologin;
       create schema auth;
-      create table auth.users(id uuid primary key);
+      create table auth.users(id uuid primary key, email text, raw_user_meta_data jsonb);
       create function auth.uid() returns uuid language sql stable as $$
         select (nullif(current_setting('request.jwt.claims', true), '')::jsonb->>'sub')::uuid;
       $$;
@@ -219,6 +223,7 @@ describe("relational workspace database", () => {
     await db.exec(projectStatusMigration);
     await db.exec(developerAccessMigration);
     await db.exec(testAttachmentsMigration);
+    await db.exec(ownerNamesMigration);
   }, 30000);
   afterAll(async () => {
     await db?.close();
@@ -790,6 +795,22 @@ describe("relational workspace database", () => {
     expect(parseCloudSnapshot(await read(B), true).workspace).toEqual(emptyWorkspace());
   });
 
+  it("names joined workspaces after their owner, only for current members", async () => {
+    const names = (id: string | null, role?: string) =>
+      as(id, async () => (await db.query("select * from public.list_qa_workspace_names()")).rows, role);
+    await db.query("update auth.users set email = 'ana@example.test' where id = $1", [A]);
+    await save(A);
+    await join(B, await invite());
+    expect(await names(B)).toEqual([{ workspace_owner: A, owner_name: "ana" }]);
+    await db.query(`update auth.users set raw_user_meta_data = '{"full_name":" Ana Cruz "}' where id = $1`, [A]);
+    expect(await names(B)).toEqual([{ workspace_owner: A, owner_name: "Ana Cruz" }]);
+    expect(await names(A)).toEqual([]);
+    expect(await names(C)).toEqual([]);
+    await expect(names(null, "anon")).rejects.toMatchObject({ code: "42501" });
+    await as(A, () => db.query("delete from public.qa_workspace_members where member_id = $1", [B]));
+    expect(await names(B)).toEqual([]);
+  });
+
   it("rotates, expires, and disables invite codes without removing existing members", async () => {
     await save(A);
     const first = await invite();
@@ -841,15 +862,33 @@ describe("relational transport", () => {
       },
     });
 
-    await expect(readTeamCalendarWorkspace(client, A)).resolves.toMatchObject({ owner: A });
-    await expect(readTeamCalendarWorkspace(client, C)).resolves.toMatchObject({ owner: A });
-    await expect(readTeamCalendarWorkspace(client, B)).resolves.toEqual({ owner: B, label: "My workspace" });
+    await expect(readTeamCalendarWorkspace(client, A, "Ana")).resolves.toMatchObject({ owner: A });
+    await expect(readTeamCalendarWorkspace(client, C, "Cy")).resolves.toMatchObject({ owner: A });
+    await expect(readTeamCalendarWorkspace(client, B, "Ben")).resolves.toEqual({ owner: B, label: "Ben" });
     expect(resolutions.map((url) => url.searchParams.get("user_id"))).toEqual([
       `in.(${A})`,
       `in.(${A},${C})`,
     ]);
     expect(resolutions[1].searchParams.get("order")).toBe("created_at.asc,user_id.asc");
     expect(resolutions[1].searchParams.get("limit")).toBe("1");
+  });
+
+  it("labels joined workspaces by owner name and falls back when names are unavailable", async () => {
+    const labels = async (names: () => Response) => {
+      const client = createClient("https://vexa.example", "sb_publishable_test", {
+        auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
+        global: {
+          fetch: async (input) =>
+            String(input).includes("/rpc/list_qa_workspace_names")
+              ? names()
+              : Response.json([{ workspace_owner: A }]),
+        },
+      });
+      return (await listSharedWorkspaces(client, B)).map(({ label }) => label);
+    };
+    expect(await labels(() => Response.json([{ workspace_owner: A, owner_name: "Ana" }]))).toEqual(["QA-ANA"]);
+    expect(await labels(() => Response.json([{ workspace_owner: A, owner_name: null }]))).toEqual(["Team workspace 10000000"]);
+    expect(await labels(() => Response.json({ code: "PGRST202", message: "missing" }, { status: 404 }))).toEqual(["Team workspace 10000000"]);
   });
 
   function backendWithResponse(data: unknown, status = 200, userId = A) {

@@ -16,6 +16,7 @@ type Invite = { code: string; expires_at: string; role: string };
 
 export default function WorkspaceSharing({
   userId,
+  ownLabel,
   owner,
   workspaces,
   combineModuleRecords,
@@ -27,6 +28,7 @@ export default function WorkspaceSharing({
   role,
 }: {
   userId: string;
+  ownLabel: string;
   owner: string;
   workspaces: SharedWorkspace[];
   combineModuleRecords: boolean;
@@ -119,7 +121,7 @@ export default function WorkspaceSharing({
           id="sharing-workspace"
           label="Current workspace"
           options={[
-            { value: userId, label: "My workspace" },
+            { value: userId, label: ownLabel },
             ...workspaces.map((w) => ({ value: w.owner, label: w.label })),
           ]}
           placeholder="Select a workspace"

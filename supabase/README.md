@@ -98,6 +98,8 @@ Realtime publishes the workspace revision row. After a committed save, clients f
 
 ## Existing installations
 
+Apply [`migrations/20261125090000_workspace_owner_names.sql`](migrations/20261125090000_workspace_owner_names.sql) after all earlier migrations. It adds `list_qa_workspace_names`, which gives members the display name (or email prefix) of each owner whose workspace they joined. Until it is applied, joined workspaces keep a generic label.
+
 This is a replacement baseline for new installations. The former `001_workspace.sql` and `002_shared_realtime.sql` files were removed. Deleting migration files does not undo SQL already run on a remote project.
 
 The baseline deliberately stops if VEXA tables already exist. It contains no DROP TABLE, no database reset, and no automatic deletion or conversion of existing cloud data. Do not run it over the previous JSON schema. Keep that installation and its backups intact; use a fresh Supabase project for this baseline, or prepare a separately reviewed data-conversion migration before upgrading an installation with records. Point the updated application at the relational project: the old schema does not provide `read_qa_workspace` and is no longer supported by the updated client.

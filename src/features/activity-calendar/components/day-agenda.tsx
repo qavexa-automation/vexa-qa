@@ -1,11 +1,13 @@
 import { CalendarDays, Check, MapPin, Pencil, Plus, RotateCcw, Trash2 } from "lucide-react";
 import { IconButton } from "@/components/app-shell/icon-button";
+import { InlineStatusSelect } from "@/components/forms/inline-status-select";
 import { Button } from "@/components/ui/button";
+import { activityStatusTone } from "@/lib/status-tones";
 import { cn } from "@/lib/utils";
 import type { Project } from "@/lib/model";
 import { dateLabel, eventTime } from "../lib/calendar";
 import { eventAppearance } from "../lib/event-appearance";
-import type { CalendarEvent } from "../types/calendar-event";
+import { ACTIVITY_STATUSES, type CalendarEvent } from "../types/calendar-event";
 
 export function DayAgenda({ date, events, projects, disabled, onAdd, onEdit, onSave, onDelete }: {
   date: string; events: CalendarEvent[]; projects: Project[];
@@ -30,7 +32,17 @@ export function DayAgenda({ date, events, projects, disabled, onAdd, onEdit, onS
     </div> : <ul className="space-y-4">{events.map((event) => {
       const project = projects.find((entry) => entry.id === event.projectId);
       return <li key={event.id} className={cn("min-w-0 rounded-lg border border-border border-l-3 p-3", eventAppearance[event.kind].chip)}>
-        <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground"><span>{event.kind}</span><span>{event.status}</span></div>
+        <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
+          <span>{event.kind}</span>
+          <InlineStatusSelect
+            disabled={disabled}
+            label={`Status for ${event.title}`}
+            onChange={(status) => onSave({ ...event, status }, event)}
+            options={ACTIVITY_STATUSES}
+            tone={activityStatusTone}
+            value={event.status}
+          />
+        </div>
         <h3 className={cn("mt-2 font-sans text-sm font-semibold wrap-anywhere", event.status !== "Scheduled" && "line-through")}>
           <Button variant="link" disabled={disabled} className="h-auto max-w-full justify-start p-0 text-left text-foreground whitespace-normal" onClick={() => onEdit(event)}>{event.title}</Button>
         </h3>

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { emptyWorkspace, type Workspace } from "@/lib/model";
 
+import { changeRecordStatus } from "./record-status";
 import { workspaceRecords, workspaceRecordTypeForView } from "./workspace-records";
 
 function fixture(project: string): Workspace {
@@ -134,5 +135,22 @@ describe("Records across workspaces", () => {
       rows.map((row) => row.fields.find((field) => field.label === "Expected result")?.value),
     ).toEqual(["The dashboard loads.", "The plan renews."]);
     expect(workspaceRecordTypeForView("Settings")).toBeUndefined();
+  });
+
+  it("records a Test Lab result in its source workspace and preserves the other fields", () => {
+    const source = { owner: "q2", label: "Q2", role: "editor", workspace: fixture("Portal") } as const;
+    const [record] = workspaceRecords(source, "Test case");
+    const draft = changeRecordStatus(source, record, "Failed");
+
+    expect(draft.tests[0]).toEqual({
+      ...source.workspace.tests[0],
+      status: "Failed",
+      lastRun: expect.any(String),
+    });
+    expect(draft.activity[0]).toMatchObject({ kind: "test", text: "TC-001 failed: Portal" });
+    expect(source.workspace.tests[0].status).toBe("Passed");
+    expect(() => changeRecordStatus({ ...source, owner: "qa" }, record, "Failed")).toThrow(/access/);
+    expect(() => changeRecordStatus({ ...source, role: "developer" }, record, "Failed")).toThrow(/access/);
+    expect(() => changeRecordStatus(source, record, "Completed")).toThrow(/valid status/);
   });
 });

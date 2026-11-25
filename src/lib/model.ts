@@ -214,6 +214,22 @@ export function deleteTest(workspace: Workspace, id: string): Workspace {
     ].slice(0, 40),
   };
 }
+export function deleteIssue(workspace: Workspace, id: string): Workspace {
+  if (!workspace.issues.some((issue) => issue.id === id)) return workspace;
+  return {
+    ...workspace,
+    issues: workspace.issues.filter((issue) => issue.id !== id),
+    activity: [
+      {
+        id: crypto.randomUUID(),
+        text: `${id} deleted`,
+        date: new Date().toISOString(),
+        kind: "issue" as const,
+      },
+      ...workspace.activity,
+    ].slice(0, 40),
+  };
+}
 export function moveIssue(workspace: Workspace, id: string, status: Status): Workspace {
   const issue = workspace.issues.find((i) => i.id === id);
   if (!issue || issue.status === status) return workspace;

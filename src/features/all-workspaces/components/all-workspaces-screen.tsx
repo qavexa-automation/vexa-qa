@@ -9,7 +9,6 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { InputGroup, InputGroupAddon, InputGroupInput } from "@/components/ui/input-group";
 import { Skeleton } from "@/components/ui/skeleton";
-import { StatusBadge } from "@/components/ui/status-badge";
 import { RecordTile } from "@/components/workspace-tables/cells";
 import { TEST_STATUSES } from "@/lib/model";
 import { matchesSearch } from "@/lib/search-params";
@@ -21,8 +20,11 @@ import {
   type RecordType,
   type WorkspaceRecord,
 } from "../lib/workspace-records";
-import { RecordDetails, WorkspaceRecordsContext } from "./record-details";
+import { RecordDetails } from "./record-details";
+import { WorkspaceInlineStatus } from "./workspace-inline-status";
+import { WorkspaceRecordActions } from "./workspace-record-actions";
 import { workspaceRecordColumns } from "./workspace-record-columns";
+import { WorkspaceRecordsContext } from "./workspace-record-context";
 
 export function AllWorkspacesScreen({
   userId,
@@ -221,12 +223,13 @@ export function AllWorkspacesScreen({
             }
             renderTile={(record) => (
               <RecordTile
+                action={<WorkspaceRecordActions record={record} />}
                 meta={[
                   { label: "Workspace", value: record.workspace },
                   { label: "Project", value: record.project || "—" },
                   ...(record.module ? [{ label: "Module", value: record.module }] : []),
                 ]}
-                status={<StatusBadge {...record.status} size="sm" />}
+                status={<WorkspaceInlineStatus record={record} />}
                 subtitle={moduleRecordType ? undefined : record.type}
                 title={
                   <RecordDetails

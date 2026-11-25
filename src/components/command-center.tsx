@@ -10,11 +10,9 @@ import {
   ArrowUpRight,
   BarChart3,
   Bell,
-  BookOpen,
   Bug,
   CalendarDays,
   Check,
-  CheckCheck,
   CheckCircle2,
   ChevronRight,
   CircleHelp,
@@ -37,7 +35,6 @@ import {
   LogOut,
   Medal,
   Menu,
-  MoreHorizontal,
   NotebookPen,
   Plus,
   Rocket,
@@ -59,6 +56,7 @@ import {
   filterTestsByProject,
   filterIssuesByProject,
   metrics,
+  deleteIssue,
   deleteTest,
   moveIssue,
   PRIORITIES,
@@ -78,7 +76,7 @@ import {
 import { LOCAL_WORKSPACE_BACKUP_KEY, useWorkspace } from "@/lib/use-workspace";
 import { firstBloodAchievement } from "@/lib/achievements";
 import { AchievementIcon } from "@/components/brand/achievement-icon";
-import { ProfileSettings } from "@/features/profile";
+import { ownWorkspaceLabel, ProfileSettings } from "@/features/profile";
 import {
   MODIFICATION_XP,
   modificationForQuest,
@@ -89,6 +87,7 @@ import ProjectMaintenance from "@/components/project-maintenance";
 import TestCaseTable from "@/components/test-case-table";
 import { EmptyState, Panel, StatCard as Stat } from "@/components/app-shell/panel";
 import { IssueTable } from "@/components/workspace-tables/issue-table";
+import { QuestBoardColumns } from "@/components/quest-board-columns";
 import { IconButton } from "@/components/app-shell/icon-button";
 import { ConfirmDialog } from "@/components/forms/confirm-dialog";
 import { FilterCombobox, valueOptions } from "@/components/forms/filter-combobox";
@@ -127,6 +126,7 @@ import ThemeSwitcher from "@/components/theme-switcher";
 import { ActivityCalendarScreen } from "@/features/activity-calendar";
 import {
   AllWorkspacesScreen,
+  CombinedQuestBoard,
   TeamActivityCalendar,
   workspaceRecordTypeForView,
 } from "@/features/all-workspaces";
@@ -175,7 +175,6 @@ const navigation: { title: string; items: { name: View; icon: LucideIcon }[] }[]
     ],
   },
 ];
-const icons: Record<Issue["type"], LucideIcon> = { Bug, Task: CheckCheck, Story: BookOpen };
 const descriptions: Record<View, string> = {
   Overview: "Your next great release starts here.",
   "All workspaces": "View and edit records across your workspaces.",
@@ -306,6 +305,7 @@ export default function CommandCenter() {
     combineModuleRecords && currentWorkspaceView !== view
   );
   const combinedView = view === "All workspaces" || combinedModule || teamCalendar;
+  const combinedQuestBoard = combinedModule && view === "Quest board";
   const [achievementMotionPaused, setAchievementMotionPaused] = useState(false);
   const [search, setSearch] = useState("");
   const [priority, setPriority] = useState("");
@@ -364,7 +364,6 @@ export default function CommandCenter() {
   const [notifications, setNotifications] = useState(false);
   const [sidebar, setSidebar] = useState(false);
   const [listMode, setListMode] = useState(false);
-  const [dropColumn, setDropColumn] = useState<Status | null>(null);
   const [testFilter, setTestFilter] = useState("");
   const [testProjectFilter, setTestProjectFilter] = useState("");
   const [compact, setCompact] = useState(false);
@@ -380,6 +379,9 @@ export default function CommandCenter() {
       (identity) => identity?.trim().toLowerCase() === name.trim().toLowerCase(),
     );
   const projects = workspace.projects ?? [];
+  const currentWorkspaceLabel = owner === user?.id
+    ? ownWorkspaceLabel(user)
+    : sharedWorkspaces.find((entry) => entry.owner === owner)?.label;
   const selectedQuestProject = projects.find((project) => project.id === questProjectFilter);
   const activeQuestProjectFilter = selectedQuestProject?.id ?? "";
   const selectedTestProject = projects.find((project) => project.id === testProjectFilter);
@@ -415,6 +417,10 @@ export default function CommandCenter() {
   };
   const navigateInCurrentWorkspace = (next: View) => {
     navigate(next, true);
+  };
+  const addQuest = (status: Status) => {
+    setNewStatus(status);
+    setIssueModal("new");
   };
   // Changes to a modification card are saved on the modification itself.
   const updateModification = (
@@ -874,6 +880,20 @@ export default function CommandCenter() {
                 onNotice={notify}
                 onManageProjects={() => navigate("Project Maintenance")}
               />
+            ) : combinedQuestBoard ? (
+              <CombinedQuestBoard
+                key={user.id}
+                userId={user.id}
+                searchInput={searchInput}
+                canAdd={ready && !error}
+                matchesAssignee={matchesIdentity}
+                onAdd={(status, project) => {
+                  const matches = projects.filter((entry) => entry.name === project);
+                  setQuestProjectFilter(matches.length === 1 ? matches[0].id : "");
+                  addQuest(status);
+                }}
+                onNotice={notify}
+              />
             ) : (
               <AllWorkspacesScreen
                 key={`${user.id}:${view}`}
@@ -1022,82 +1042,12 @@ export default function CommandCenter() {
                 {listMode ? (
                   <div className="panel">{issueRows(filtered)}</div>
                 ) : (
-                  <div className="kanban">
-                    {STATUSES.map((status) => (
-                      <section
-                        key={status}
-                        className={`kanban-column ${dropColumn === status ? "drag-over" : ""}`}
-                        onDragOver={(e) => {
-                          e.preventDefault();
-                          setDropColumn(status);
-                        }}
-                        onDragLeave={() => setDropColumn(null)}
-                        onDrop={(e) => {
-                          e.preventDefault();
-                          const id = e.dataTransfer.getData("text/plain");
-                          if (!updateModification(id, { status })) updateStatus(id, status);
-                          setDropColumn(null);
-                        }}
-                      >
-                        <div className="column-heading">
-                          <StatusBadge status={status} />
-                          <Button
-                            aria-label={`Add quest to ${status}`}
-                            variant="ghost"
-                            size="icon"
-                            onClick={() => setIssueModal("new")}
-                          >
-                            <Plus size={15} />
-                          </Button>
-                        </div>
-                        <div className="column-cards">
-                          {filtered
-                            .filter((i) => i.status === status)
-                            .map((issue) => {
-                              const Icon = icons[issue.type];
-                              return (
-                                <button
-                                  draggable
-                                  onDragStart={(e) =>
-                                    e.dataTransfer.setData("text/plain", issue.id)
-                                  }
-                                  onDragEnd={() => setDropColumn(null)}
-                                  className="quest-card"
-                                  key={issue.id}
-                                  onClick={() => openQuest(issue)}
-                                >
-                                  <div className="quest-card-top">
-                                    <span className={`type-icon ${issue.type.toLowerCase()}`}>
-                                      <Icon size={13} />
-                                    </span>
-                                    <span>{issue.id}</span>
-                                    <MoreHorizontal size={16} />
-                                  </div>
-                                  <h3>{issue.title}</h3>
-                                  <div className="tags">
-                                    {issue.labels.map((l) => (
-                                      <span key={l}>{l}</span>
-                                    ))}
-                                  </div>
-                                  <div className="quest-card-bottom">
-                                    <PriorityBadge priority={issue.priority} />
-                                    <span className="xp">
-                                      <Zap size={11} />
-                                      {issue.xp}
-                                    </span>
-                                    <Avatar name={issue.assignee} size="small" />
-                                  </div>
-                                </button>
-                              );
-                            })}
-                          <button className="add-card" onClick={() => setIssueModal("new")}>
-                            <Plus size={14} />
-                            Add quest
-                          </button>
-                        </div>
-                      </section>
-                    ))}
-                  </div>
+                  <QuestBoardColumns
+                    issues={filtered}
+                    onOpen={openQuest}
+                    onAdd={addQuest}
+                    onMove={changeStatusInline}
+                  />
                 )}
                 <p className="board-help">
                   <CircleHelp size={13} />
@@ -1707,6 +1657,7 @@ export default function CommandCenter() {
                     <WorkspaceSharing
                       key={owner}
                       userId={user.id}
+                      ownLabel={ownWorkspaceLabel(user)}
                       owner={owner}
                       role={role}
                       workspaces={sharedWorkspaces}
@@ -1737,6 +1688,7 @@ export default function CommandCenter() {
         <IssueDialog
           initialStatus={newStatus}
           initialProjectId={view === "Quest board" ? selectedQuestProject?.id : undefined}
+          workspaceLabel={combinedQuestBoard && issueModal === "new" ? currentWorkspaceLabel : undefined}
           issue={issueModal}
           projects={workspace.projects ?? []}
           onManageProjects={() => {
@@ -1767,19 +1719,7 @@ export default function CommandCenter() {
             notify(isNew ? "A new quest awaits. Let’s do this!" : "Quest updated");
           }}
           onDelete={(id) => {
-            setWorkspace((w) => ({
-              ...w,
-              issues: w.issues.filter((i) => i.id !== id),
-              activity: [
-                {
-                  id: crypto.randomUUID(),
-                  text: `${id} deleted`,
-                  date: new Date().toISOString(),
-                  kind: "issue" as const,
-                },
-                ...w.activity,
-              ].slice(0, 40),
-            }));
+            setWorkspace((w) => deleteIssue(w, id));
             setIssueModal(null);
             notify("Quest deleted");
           }}
@@ -1791,9 +1731,7 @@ export default function CommandCenter() {
           remarksOnly={developerOnly}
           test={testModal}
           initialProjectId={combinedModule ? undefined : selectedTestProject?.id}
-          workspaceLabel={combinedModule && testModal === "new"
-            ? owner === user?.id ? "My workspace" : sharedWorkspaces.find((workspace) => workspace.owner === owner)?.label
-            : undefined}
+          workspaceLabel={combinedModule && testModal === "new" ? currentWorkspaceLabel : undefined}
           projects={workspace.projects ?? []}
           onManageProjects={() => {
             setTestModal(null);
@@ -1911,6 +1849,7 @@ function TriangleIcon({ size = 24 }: { size?: number }) {
 function IssueDialog({
   initialStatus,
   initialProjectId,
+  workspaceLabel,
   issue,
   projects,
   onManageProjects,
@@ -1920,6 +1859,7 @@ function IssueDialog({
 }: {
   initialStatus: Status;
   initialProjectId?: string;
+  workspaceLabel?: string;
   issue: Issue | "new";
   projects: Project[];
   onManageProjects: () => void;
@@ -1976,7 +1916,7 @@ function IssueDialog({
       title={isNew ? "Your next quest starts here." : issue.id}
       subtitle={
         isNew
-          ? "One small task. One step toward a legendary release."
+          ? workspaceLabel ? `New quests are saved to ${workspaceLabel}.` : "One small task. One step toward a legendary release."
           : "Update the details and keep your release moving."
       }
       onClose={onClose}
@@ -2252,6 +2192,7 @@ function TestDialog({
             onChange={(e) => setExpected(e.target.value)}
             placeholder="Describe the successful outcome…"
           />
+          {!isNew && <FieldDescription>Current status: {test.status}</FieldDescription>}
         </Field>
         </fieldset>
         <Field>
@@ -2271,13 +2212,6 @@ function TestDialog({
               <p className="text-sm text-muted-foreground">
                 Execute the saved steps in your application before recording.
               </p>
-              {test.lastRun && (
-                <p className="mt-1 text-xs text-muted-foreground">
-                  Last run:{" "}
-                  {new Date(test.lastRun).toLocaleString("en-PH", { timeZone: "Asia/Manila" })} ·{" "}
-                  {test.status}
-                </p>
-              )}
             </div>
             <div className="flex flex-wrap gap-2">
               {TEST_STATUSES.map((status) => (

@@ -1,10 +1,11 @@
 import type { StatusPresentation } from "@/components/ui/status-badge";
 import type { Attachment } from "@/features/attachments";
 import { canOpenWorkspaceView, type WorkspaceRole } from "@/features/workspace-access";
-import { formatDate, formatTimestamp, toIsoDate } from "@/lib/dates";
+import { formatDate } from "@/lib/dates";
 import { getDepartmentSection, type Workspace } from "@/lib/model";
 import type { SharedWorkspace } from "@/lib/relational-workspace";
 import {
+  activityStatusTone,
   deploymentStatusTone,
   projectStatusTone,
   statusTone,
@@ -67,8 +68,6 @@ export function workspaceRecords(
         type,
       });
   };
-  const timestamp = (value: string | null) =>
-    value && Number.isFinite(Date.parse(value)) ? formatTimestamp(value) : "";
   const day = (value: string | null | undefined) =>
     value && Number.isFinite(Date.parse(`${value}T00:00:00Z`)) ? formatDate(value) : "";
   const dateField = (label: string, value: string | null | undefined) => ({
@@ -100,14 +99,6 @@ export function workspaceRecords(
         { label: "Test details", value: test.steps },
         { label: "Expected result", value: test.expected },
         { label: "Developer remarks", value: test.developerRemarks },
-        {
-          label: "Last run",
-          value: timestamp(test.lastRun),
-          date:
-            test.lastRun && Number.isFinite(Date.parse(test.lastRun))
-              ? toIsoDate(new Date(test.lastRun))
-              : "",
-        },
       ],
       attachments: test.attachments,
     });
@@ -160,15 +151,7 @@ export function workspaceRecords(
     add("Activity", event.id, {
       name: event.title,
       project: projects.get(event.projectId) ?? "",
-      status: {
-        label: event.status,
-        tone:
-          event.status === "Completed"
-            ? "positive"
-            : event.status === "Scheduled"
-              ? "info"
-              : "neutral",
-      },
+      status: { label: event.status, tone: activityStatusTone(event.status) },
       fields: [
         { label: "Kind", value: event.kind },
         {

@@ -1,8 +1,9 @@
-import { createContext, useContext, useState } from "react";
+import { useContext, useState, type ReactElement } from "react";
 import { Pencil } from "lucide-react";
 import { toast } from "sonner";
 
 import { ConfirmDialog } from "@/components/forms/confirm-dialog";
+import { IconButton } from "@/components/app-shell/icon-button";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -12,7 +13,6 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
-import { StatusBadge } from "@/components/ui/status-badge";
 import { AttachmentCell, downloadAttachment } from "@/features/attachments";
 import type { Workspace } from "@/lib/model";
 import { supabase } from "@/lib/supabase";
@@ -21,13 +21,9 @@ import { canEditRecord, createRecordEdit, type RecordEdit } from "../lib/record-
 import { saveRecordEdit } from "../lib/save-record-edit";
 import type { WorkspaceRecord, WorkspaceSource } from "../lib/workspace-records";
 import { RecordEditForm } from "./record-edit-form";
-
-type WorkspaceRecordContext = {
-  userId: string;
-  sources: Map<string, WorkspaceSource>;
-  refresh: () => void;
-};
-export const WorkspaceRecordsContext = createContext<WorkspaceRecordContext | null>(null);
+import { DeleteRecordAction } from "./delete-record-action";
+import { WorkspaceInlineStatus } from "./workspace-inline-status";
+import { WorkspaceRecordsContext } from "./workspace-record-context";
 
 export function RecordAttachments({ record }: { record: WorkspaceRecord }) {
   const client = supabase;
@@ -48,9 +44,13 @@ export function RecordAttachments({ record }: { record: WorkspaceRecord }) {
 export function RecordDetails({
   record,
   showId = false,
+  trigger,
+  editTrigger = false,
 }: {
   record: WorkspaceRecord;
   showId?: boolean;
+  trigger?: ReactElement;
+  editTrigger?: boolean;
 }) {
   const context = useContext(WorkspaceRecordsContext);
   const [open, setOpen] = useState(false);
@@ -77,14 +77,16 @@ export function RecordDetails({
   }
 
   function beginEdit() {
-    if (!source) return;
+    if (!source) return false;
     try {
       setEditing({
         source,
         edit: createRecordEdit(source.workspace, source.role, record.type, record.id),
       });
+      return true;
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Unable to open this editor.");
+      return false;
     }
   }
 
@@ -102,26 +104,48 @@ export function RecordDetails({
   }
 
   return (
-    <Dialog open={open} onOpenChange={(next) => (next ? setOpen(true) : requestClose())}>
-      <DialogTrigger
-        render={
-          <Button
-            aria-label={`View ${record.type.toLowerCase()} details for ${record.name}${record.module ? `, ${record.module}` : ""} in ${record.workspace}`}
-            className="h-auto max-w-full flex-col items-start gap-0 p-0 text-left md:max-w-56"
-            type="button"
-            variant="link"
-          />
-        }
-      >
-        {showId && (
-          <span className="max-w-full truncate font-mono text-xs text-muted-foreground">
-            {record.id}
+    <Dialog
+      open={open}
+      onOpenChange={(next) => {
+        if (!next) requestClose();
+        else if (!editTrigger || beginEdit()) setOpen(true);
+      }}
+    >
+      {editTrigger ? (
+        <IconButton
+          ariaLabel={`${source?.role === "developer" ? "Edit developer remarks" : `Edit ${record.type.toLowerCase()}`}: ${record.name} · ${record.workspace}`}
+          icon={Pencil}
+          label={
+            source?.role === "developer"
+              ? "Edit developer remarks"
+              : `Edit ${record.type.toLowerCase()}`
+          }
+          render={(button) => <DialogTrigger render={button} />}
+          type="button"
+        />
+      ) : trigger ? (
+        <DialogTrigger render={trigger} />
+      ) : (
+        <DialogTrigger
+          render={
+            <Button
+              aria-label={`View ${record.type.toLowerCase()} details for ${record.name}${record.module ? `, ${record.module}` : ""} in ${record.workspace}`}
+              className="h-auto max-w-full flex-col items-start gap-0 p-0 text-left md:max-w-56"
+              type="button"
+              variant="link"
+            />
+          }
+        >
+          {showId && (
+            <span className="max-w-full truncate font-mono text-xs text-muted-foreground">
+              {record.id}
+            </span>
+          )}
+          <span className="max-w-full truncate" title={record.name}>
+            {record.name || record.type}
           </span>
-        )}
-        <span className="max-w-full truncate" title={record.name}>
-          {record.name || record.type}
-        </span>
-      </DialogTrigger>
+        </DialogTrigger>
+      )}
       <DialogContent className="max-h-[85dvh] overflow-y-auto sm:max-w-lg">
         <DialogHeader className="pr-8">
           <DialogTitle className="wrap-anywhere">
@@ -142,7 +166,7 @@ export function RecordDetails({
         ) : (
           <>
             <div className="flex flex-wrap items-center justify-between gap-2">
-              <StatusBadge {...record.status} />
+              <WorkspaceInlineStatus record={record} />
               {source && canEditRecord(source.role, record.type) && (
                 <Button onClick={beginEdit} type="button" variant="outline">
                   <Pencil aria-hidden="true" />
@@ -165,6 +189,7 @@ export function RecordDetails({
                 ))}
             </dl>
             {!!record.attachments?.length && <RecordAttachments record={record} />}
+            <DeleteRecordAction record={record} onDeleted={close} />
           </>
         )}
         <ConfirmDialog

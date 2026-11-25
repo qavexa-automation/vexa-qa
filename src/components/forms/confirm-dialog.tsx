@@ -1,6 +1,7 @@
 "use client";
 
 import type { ReactNode } from "react";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 
 import {
   AlertDialog,
@@ -24,6 +25,8 @@ export function ConfirmDialog({
   confirmLabel,
   onConfirm,
   onCancel,
+  pending = false,
+  error,
 }: {
   open: boolean;
   title: ReactNode;
@@ -31,11 +34,13 @@ export function ConfirmDialog({
   confirmLabel: string;
   onConfirm: () => void;
   onCancel: () => void;
+  pending?: boolean;
+  error?: string;
 }) {
   return (
     <AlertDialog
       onOpenChange={(next) => {
-        if (!next) onCancel();
+        if (!next && !pending) onCancel();
       }}
       open={open}
     >
@@ -50,10 +55,15 @@ export function ConfirmDialog({
             {description}
           </AlertDialogDescription>
         </AlertDialogHeader>
+        {error && (
+          <Alert variant="destructive">
+            <AlertDescription>{error}</AlertDescription>
+          </Alert>
+        )}
         <AlertDialogFooter>
-          <AlertDialogCancel>Cancel</AlertDialogCancel>
-          <AlertDialogAction onClick={onConfirm} variant="destructive">
-            {confirmLabel}
+          <AlertDialogCancel disabled={pending}>Cancel</AlertDialogCancel>
+          <AlertDialogAction disabled={pending} onClick={onConfirm} variant="destructive">
+            {pending ? "Working…" : confirmLabel}
           </AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>

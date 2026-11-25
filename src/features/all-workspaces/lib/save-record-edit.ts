@@ -40,18 +40,26 @@ export async function saveRecordEdit(
 ) {
   if (!canUpdateWorkspace(source.role, source.workspace, draft))
     throw new Error("You don’t have access to save these changes.");
-  const backend = relationalBackend(client, source.owner, userId, (role) => {
-    if (role !== source.role)
-      throw new Error("Your workspace access changed. Reopen the record and try again.");
-  });
+  const backend = workspaceRecordBackend(client, userId, source);
   try {
     await commitRecordEdit(backend, source.workspace, draft);
   } catch (error) {
     if (error instanceof Error && error.message.startsWith("Both users changed")) {
       throw new Error(
-        `${error.message.split(". Export your unsaved work")[0]}. Your draft is still here. Reopen the record to see the latest version.`,
+        `${error.message.split(". Export your unsaved work")[0]}. Refresh or reopen the record to see the latest version.`,
       );
     }
     throw error;
   }
+}
+
+export function workspaceRecordBackend(
+  client: SupabaseClient,
+  userId: string,
+  source: WorkspaceSource,
+) {
+  return relationalBackend(client, source.owner, userId, (role) => {
+    if (role !== source.role)
+      throw new Error("Your workspace access changed. Reopen the record and try again.");
+  });
 }

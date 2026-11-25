@@ -1,6 +1,7 @@
 "use client";
 
 import type { LucideIcon } from "lucide-react";
+import type { ReactNode } from "react";
 
 import { IconButton } from "@/components/app-shell/icon-button";
 import { cn } from "@/lib/utils";
@@ -18,11 +19,13 @@ export type RowAction = {
  */
 export function RowActions({
   subject,
-  actions,
+  actions = [],
+  children,
   revealOnHover = false,
 }: {
   subject: string;
-  actions: RowAction[];
+  actions?: RowAction[];
+  children?: ReactNode;
   /**
    * In a table row, stay hidden until the row is hovered or holds focus. Touch screens, which
    * cannot hover, always show them; so do the phone tiles, which leave this off.
@@ -51,6 +54,7 @@ export function RowActions({
           onClick={onSelect}
         />
       ))}
+      {children}
     </div>
   );
 }

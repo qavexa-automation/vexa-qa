@@ -1,6 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { emptyWorkspace, getDepartmentSection, parseWorkspace, type Workspace } from "./model";
 import type { CloudBackend, CloudSnapshot } from "./cloud-workspace";
+import { workspaceLabel } from "@/features/profile";
 import { workspaceRoleSchema, type WorkspaceRole } from "@/features/workspace-access";
 
 // Deleted projects keep readable history, while persisted foreign keys become NULL.
@@ -59,28 +60,46 @@ export function parseCloudSnapshot(value: unknown, ownWorkspace: boolean): Cloud
 
 export type SharedWorkspace = { owner: string; label: string };
 
-export async function listSharedWorkspaces(client: SupabaseClient, userId: string) {
+async function listJoinedOwners(client: SupabaseClient, userId: string): Promise<string[]> {
   const { data, error } = await client
     .from("qa_workspace_members")
     .select("workspace_owner")
     .eq("member_id", userId);
   if (error) throw new Error(error.message);
-  return (data ?? []).map(({ workspace_owner: owner }): SharedWorkspace => ({
-    owner,
-    label: `Team workspace ${owner.slice(0, 8)}`,
-  }));
+  return (data ?? []).map(({ workspace_owner: owner }) => owner);
 }
 
-/** Use the established shared workspace even when a teammate is browsing My workspace. */
-export async function readTeamCalendarWorkspace(client: SupabaseClient, userId: string): Promise<SharedWorkspace> {
+/** Joined workspaces, each named after its owner. */
+export async function listSharedWorkspaces(client: SupabaseClient, userId: string) {
+  const [owners, names] = await Promise.all([
+    listJoinedOwners(client, userId),
+    client.rpc("list_qa_workspace_names"),
+  ]);
+  // Names are cosmetic: without them (or before their migration is applied) access still works.
+  const nameByOwner = new Map<string, unknown>(
+    names.error || !Array.isArray(names.data)
+      ? []
+      : names.data.map((row) => [row.workspace_owner, row.owner_name]),
+  );
+  return owners.map((owner): SharedWorkspace => {
+    const name = nameByOwner.get(owner);
+    return {
+      owner,
+      label: (typeof name === "string" && workspaceLabel(name)) || `Team workspace ${owner.slice(0, 8)}`,
+    };
+  });
+}
+
+/** Use the established shared workspace even when a teammate is browsing their own. */
+export async function readTeamCalendarWorkspace(client: SupabaseClient, userId: string, ownLabel: string): Promise<SharedWorkspace> {
   const [joined, owned] = await Promise.all([
-    listSharedWorkspaces(client, userId),
+    listJoinedOwners(client, userId),
     client.from("qa_workspace_members").select("workspace_owner").eq("workspace_owner", userId).limit(1),
   ]);
   if (owned.error) throw new Error(owned.error.message);
-  const teamOwners = joined.map(({ owner }) => owner);
+  const teamOwners = [...joined];
   if (owned.data?.length) teamOwners.push(userId);
-  if (!teamOwners.length) return { owner: userId, label: "My workspace" };
+  if (!teamOwners.length) return { owner: userId, label: ownLabel };
 
   // All members with access to the original team converge on the same workspace.
   const { data, error } = await client.from("qa_workspaces")

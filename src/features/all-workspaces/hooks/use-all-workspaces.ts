@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
+import { ownWorkspaceLabel } from "@/features/profile";
 import {
   listSharedWorkspaces,
   readRelationalWorkspace,
@@ -31,11 +32,13 @@ export function useAllWorkspaces(userId: string, scope: "all" | "team-calendar" 
       inFlight = true;
       setRefreshing(true);
       try {
+        const { data: auth } = await client.auth.getSession();
+        const ownLabel = ownWorkspaceLabel(auth.session?.user);
         const workspaces =
           scope === "team-calendar"
-            ? [await readTeamCalendarWorkspace(client, userId)]
+            ? [await readTeamCalendarWorkspace(client, userId, ownLabel)]
             : [
-                { owner: userId, label: "My workspace" },
+                { owner: userId, label: ownLabel },
                 ...(await listSharedWorkspaces(client, userId)),
               ];
         if (!active) return;

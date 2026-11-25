@@ -11,19 +11,14 @@ import {
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
 import type { DataTableFeatures } from "@/components/data-table/data-table-features";
 import { sortByRank } from "@/components/data-table/sort-by-rank";
-import { StatusBadge } from "@/components/ui/status-badge";
 import { LongTextCell, TextCell } from "@/components/workspace-tables/cells";
-import { ACTIVITY_STATUSES } from "@/features/activity-calendar";
-import {
-  DEPLOYMENT_STATUSES,
-  PRIORITIES,
-  PROJECT_STATUSES,
-  STATUSES,
-  TEST_STATUSES,
-} from "@/lib/model";
+import { PRIORITIES } from "@/lib/model";
 
+import { recordStatuses } from "../lib/record-status";
 import type { RecordType, WorkspaceRecord } from "../lib/workspace-records";
 import { RecordAttachments, RecordDetails } from "./record-details";
+import { WorkspaceInlineStatus } from "./workspace-inline-status";
+import { WorkspaceRecordActions } from "./workspace-record-actions";
 
 const columnHelper = createColumnHelper<DataTableFeatures, WorkspaceRecord>();
 const moduleName: Record<RecordType, string> = {
@@ -36,7 +31,7 @@ const moduleName: Record<RecordType, string> = {
 };
 const detailNames: Record<RecordType, string[]> = {
   Project: ["Department / Section", "Developer"],
-  "Test case": ["Test details", "Expected result", "Developer remarks", "Last run"],
+  "Test case": ["Test details", "Expected result", "Status", "Developer remarks"],
   Modification: [
     "Description",
     "Priority",
@@ -57,33 +52,28 @@ const longDetails = [
   "Remarks",
   "Notes",
 ];
-const dateDetails = [
-  "Last run",
-  "Date requested",
-  "Date modified",
-  "Deployment date",
-  "Start",
-  "End",
-];
-const statuses: Record<RecordType, readonly string[]> = {
-  Project: PROJECT_STATUSES,
-  "Test case": TEST_STATUSES,
-  Modification: STATUSES,
-  Quest: STATUSES,
-  Deployment: DEPLOYMENT_STATUSES,
-  Activity: ACTIVITY_STATUSES,
-};
+const dateDetails = ["Date requested", "Date modified", "Deployment date", "Start", "End"];
 const attachmentPresence = ["Attached", "None"];
 
 export function workspaceRecordColumns(recordType?: RecordType) {
   const name = recordType ? moduleName[recordType] : "Record";
-  const statusOptions = recordType && statuses[recordType];
+  const statusOptions: readonly string[] | undefined = recordType && recordStatuses[recordType].options;
   const labels: ["type" | "workspace" | "project" | "module", string][] = [
     ["workspace", "Workspace"],
   ];
   if (!recordType) labels.unshift(["type", "Type"]);
   if (recordType !== "Project" && recordType !== "Test case") labels.push(["project", "Project"]);
   if (!recordType || recordType === "Test case") labels.push(["module", "Module"]);
+  const statusColumn = columnHelper.accessor((record) => record.status.label, {
+    id: "status",
+    filterFn: statusOptions ? filterOptions : filterText,
+    sortFn: statusOptions ? sortByRank((value) => statusOptions.indexOf(value)) : "text",
+    meta: {
+      filter: statusOptions ? optionsFilter("Status", statusOptions) : textFilter("Status"),
+    },
+    header: ({ column }) => <DataTableColumnHeader column={column} title="Status" />,
+    cell: ({ row }) => <WorkspaceInlineStatus record={row.original} />,
+  });
 
   return columnHelper.columns([
     columnHelper.accessor("name", {
@@ -110,18 +100,10 @@ export function workspaceRecordColumns(recordType?: RecordType) {
         cell: ({ getValue }) => <TextCell value={getValue()} />,
       }),
     ),
-    columnHelper.accessor((record) => record.status.label, {
-      id: "status",
-      filterFn: statusOptions ? filterOptions : filterText,
-      sortFn: statusOptions ? sortByRank((value) => statusOptions.indexOf(value)) : "text",
-      meta: {
-        filter: statusOptions ? optionsFilter("Status", statusOptions) : textFilter("Status"),
-      },
-      header: ({ column }) => <DataTableColumnHeader column={column} title="Status" />,
-      cell: ({ row }) => <StatusBadge {...row.original.status} />,
-    }),
+    ...(recordType === "Test case" ? [] : [statusColumn]),
     ...(recordType
       ? detailNames[recordType].map((detail) => {
+          if (detail === "Status") return statusColumn;
           const label = detail === "Test details" ? "Steps to execute" : detail;
           const isLong = longDetails.includes(detail);
           const isDate = dateDetails.includes(detail);
@@ -174,5 +156,12 @@ export function workspaceRecordColumns(recordType?: RecordType) {
           }),
         ]
       : []),
+    columnHelper.display({
+      id: "actions",
+      enableHiding: false,
+      meta: { cellClassName: "w-px", headerClassName: "w-px" },
+      header: () => <span className="sr-only">Actions</span>,
+      cell: ({ row }) => <WorkspaceRecordActions record={row.original} revealOnHover />,
+    }),
   ]);
 }

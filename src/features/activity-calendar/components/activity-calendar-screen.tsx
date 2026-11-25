@@ -106,8 +106,10 @@ export function ActivityCalendarScreen({
   async function save(event: CalendarEvent, original: CalendarEvent | null) {
     await mutate(() => onSave(event, original));
     // Follow the activity if it was moved to another day or month.
-    setMonth(event.startDate.slice(0, 7));
-    setSelected(event.startDate);
+    if (event.startDate !== original?.startDate) {
+      setMonth(event.startDate.slice(0, 7));
+      setSelected(event.startDate);
+    }
     onNotice(`${event.title} ${original ? "updated" : "added"}`);
   }
 

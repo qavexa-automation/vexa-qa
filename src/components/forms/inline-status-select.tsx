@@ -3,8 +3,10 @@
 import {
   Combobox,
   ComboboxContent,
+  ComboboxEmpty,
   ComboboxItem,
   ComboboxList,
+  ComboboxSearch,
   ComboboxTrigger,
 } from "@/components/ui/combobox";
 import { StatusBadge, type StatusTone } from "@/components/ui/status-badge";
@@ -12,8 +14,7 @@ import { cn } from "@/lib/utils";
 
 /**
  * A status or priority badge that edits in place. It reads as the badge until hovered or
- * focused, then shows it is a control; choosing an option saves immediately. Lists are short
- * and fixed, so there is no search field.
+ * focused, then shows it is a control. Choosing an option saves immediately.
  */
 export function InlineStatusSelect<TValue extends string>({
   value,
@@ -60,6 +61,8 @@ export function InlineStatusSelect<TValue extends string>({
         <StatusBadge label={value} tone={tone(value)} />
       </ComboboxTrigger>
       <ComboboxContent align="start" className="w-auto min-w-40">
+        <ComboboxSearch />
+        <ComboboxEmpty>No matches.</ComboboxEmpty>
         <ComboboxList>
           {(option: TValue) => (
             <ComboboxItem key={option} value={option}>

@@ -162,8 +162,8 @@ export function createRecordEdit(
           text("suite", "Module"),
           text("steps", "Test details", "textarea"),
           text("expected", "Expected result", "textarea"),
-          remarks,
           choice("status", "Status", TEST_STATUSES),
+          remarks,
         ],
         apply: (values) => {
           const {

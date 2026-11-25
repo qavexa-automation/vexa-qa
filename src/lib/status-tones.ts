@@ -1,4 +1,5 @@
 import type { StatusTone } from "@/components/ui/status-badge";
+import type { CalendarEvent } from "@/features/activity-calendar";
 import {
   DEPLOYMENT_STATUSES,
   PRIORITIES,
@@ -39,6 +40,11 @@ const deploymentTones: Record<Deployment["status"], StatusTone> = {
   Failed: "critical",
   "Rolled back": "attention",
 };
+const activityTones: Record<CalendarEvent["status"], StatusTone> = {
+  Scheduled: "info",
+  Completed: "positive",
+  Cancelled: "neutral",
+};
 const projectTones: Record<ProjectStatus, StatusTone> = {
   "Not Started": "neutral",
   "Requirements Gathering": "info",
@@ -56,6 +62,7 @@ export const statusTone = (status: Status) => statusTones[status];
 export const priorityTone = (priority: Priority) => priorityTones[priority];
 export const testStatusTone = (status: TestCase["status"]) => testTones[status];
 export const deploymentStatusTone = (status: Deployment["status"]) => deploymentTones[status];
+export const activityStatusTone = (status: CalendarEvent["status"]) => activityTones[status];
 export const projectStatusTone = (status: ProjectStatus) => projectTones[status];
 export const projectStatusRank = (status: ProjectStatus) => PROJECT_STATUSES.indexOf(status);
 
