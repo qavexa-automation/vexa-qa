@@ -5,15 +5,11 @@ import type { ReactNode } from "react";
 import {
   ArrowRight,
   ArrowUpRight,
-  Bug,
   CalendarDays,
   CheckCircle2,
-  Crosshair,
   MapPin,
   FlaskConical,
   FolderKanban,
-  NotebookPen,
-  Rocket,
   ShieldCheck,
   Sparkles,
   Target,
@@ -35,7 +31,9 @@ import {
   eventTime,
   manilaToday,
 } from "@/features/activity-calendar";
-import { EmptyState, Panel, StatCard as Stat } from "@/components/app-shell/panel";
+import { AllWorkspacesSummary } from "@/features/all-workspaces";
+import { EmptyState, Panel } from "@/components/app-shell/panel";
+import { WorkspaceSummaryCards } from "@/components/workspace-summary-cards";
 import { PortfolioTable } from "@/components/workspace-tables/portfolio-table";
 
 type Destination =
@@ -50,6 +48,7 @@ type Destination =
 
 export default function WorkspaceDashboard({
   workspace,
+  userId,
   userName,
   search,
   renderIssues,
@@ -58,6 +57,7 @@ export default function WorkspaceDashboard({
   onCriticalQuests,
 }: {
   workspace: Workspace;
+  userId?: string;
   userName?: string;
   search: string;
   renderIssues: (issues: Issue[], limit?: number) => ReactNode;
@@ -113,68 +113,12 @@ export default function WorkspaceDashboard({
           </Button>
         </div>
       </header>
-      <div className="stats-grid">
-        <Stat
-          label="PROJECTS"
-          value={summary.projects}
-          icon={FolderKanban}
-          color="mint"
-          detail="From Project Maintenance"
-        />
-        <Stat
-          label="TOTAL QUESTS"
-          value={summary.total}
-          icon={Crosshair}
-          color="mint"
-          detail={`${summary.done} completed · ${summary.total - summary.done} open`}
-        />
-        <Stat
-          label="OPEN BUGS"
-          value={summary.bugs}
-          icon={Bug}
-          color="orange"
-          detail={`${summary.critical} open critical quests`}
-        />
-        <Stat
-          label="TEST PASS RATE"
-          value={`${summary.passRate}%`}
-          icon={ShieldCheck}
-          color="purple"
-          detail={
-            summary.run
-              ? `${summary.passed} passed / ${summary.run} executed`
-              : "No executed tests yet"
-          }
-        />
-        <Stat
-          label="TEST CASES"
-          value={summary.tests}
-          icon={FlaskConical}
-          color="purple"
-          detail={`${summary.notTested} not tested · ${summary.failedTests} failed`}
-        />
-        <Stat
-          label="MODIFICATIONS"
-          value={summary.modifications}
-          icon={NotebookPen}
-          color="orange"
-          detail={`${summary.openModifications} open · ${summary.doneModifications} completed`}
-        />
-        <Stat
-          label="DEPLOYMENT RECORDS"
-          value={summary.deployments}
-          icon={Rocket}
-          color="mint"
-          detail={`${summary.deployed} deployed · ${summary.failedDeployments} failed`}
-        />
-        <Stat
-          label="WORKSPACE XP"
-          value={summary.xp.toLocaleString()}
-          icon={Zap}
-          color="yellow"
-          detail="From completed quests"
-        />
-      </div>
+      {userId ? (
+        <>
+          <AllWorkspacesSummary key={userId} userId={userId} />
+          <h2 className="mb-3 text-lg font-semibold">Current workspace details</h2>
+        </>
+      ) : <WorkspaceSummaryCards summary={summary} />}
       <div className="dashboard-grid">
         <div className="dashboard-main">
           <Panel

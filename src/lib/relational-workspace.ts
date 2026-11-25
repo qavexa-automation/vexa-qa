@@ -57,6 +57,63 @@ export function parseCloudSnapshot(value: unknown, ownWorkspace: boolean): Cloud
   return { workspace, revision };
 }
 
+export type SharedWorkspace = { owner: string; label: string };
+
+export async function listSharedWorkspaces(client: SupabaseClient, userId: string) {
+  const { data, error } = await client
+    .from("qa_workspace_members")
+    .select("workspace_owner")
+    .eq("member_id", userId);
+  if (error) throw new Error(error.message);
+  return (data ?? []).map(({ workspace_owner: owner }): SharedWorkspace => ({
+    owner,
+    label: `Team workspace ${owner.slice(0, 8)}`,
+  }));
+}
+
+/** Use the established shared workspace even when a teammate is browsing My workspace. */
+export async function readTeamCalendarWorkspace(client: SupabaseClient, userId: string): Promise<SharedWorkspace> {
+  const [joined, owned] = await Promise.all([
+    listSharedWorkspaces(client, userId),
+    client.from("qa_workspace_members").select("workspace_owner").eq("workspace_owner", userId).limit(1),
+  ]);
+  if (owned.error) throw new Error(owned.error.message);
+  const teamOwners = joined.map(({ owner }) => owner);
+  if (owned.data?.length) teamOwners.push(userId);
+  if (!teamOwners.length) return { owner: userId, label: "My workspace" };
+
+  // All members with access to the original team converge on the same workspace.
+  const { data, error } = await client.from("qa_workspaces")
+    .select("user_id")
+    .in("user_id", teamOwners)
+    .order("created_at")
+    .order("user_id")
+    .limit(1)
+    .maybeSingle();
+  if (error || !data) throw new Error("The shared team calendar couldn’t be found.");
+  return { owner: data.user_id, label: "Shared team calendar" };
+}
+
+export async function readRelationalWorkspace(
+  client: SupabaseClient,
+  workspaceOwner: string,
+  userId: string,
+): Promise<{ snapshot: CloudSnapshot; role: WorkspaceRole }> {
+  const result = await client.rpc("read_qa_workspace", { workspace_owner: workspaceOwner });
+  if (result.error)
+    throw Object.assign(new Error(result.error.message), {
+      retryable: result.status === 0 || result.status >= 500,
+    });
+  const ownWorkspace = workspaceOwner === userId;
+  const snapshot = parseCloudSnapshot(result.data, ownWorkspace);
+  if (ownWorkspace) return { snapshot, role: "owner" };
+
+  const role = workspaceRoleSchema.safeParse(result.data?.role);
+  if (!role.success || role.data === "owner")
+    throw new Error("Unable to verify workspace permissions. Apply the developer access migration.");
+  return { snapshot, role: role.data };
+}
+
 export function relationalBackend(
   client: SupabaseClient,
   workspaceOwner: string,
@@ -66,19 +123,8 @@ export function relationalBackend(
   let role: WorkspaceRole = workspaceOwner === userId ? "owner" : "developer";
   return {
     read: async () => {
-      const result = await client.rpc("read_qa_workspace", { workspace_owner: workspaceOwner });
-      if (result.error)
-        throw Object.assign(new Error(result.error.message), {
-          retryable: result.status === 0 || result.status >= 500,
-        });
-      const snapshot = parseCloudSnapshot(result.data, workspaceOwner === userId);
-      if (workspaceOwner === userId) role = "owner";
-      else {
-        const parsed = workspaceRoleSchema.safeParse(result.data?.role);
-        if (!parsed.success || parsed.data === "owner")
-          throw new Error("Unable to verify workspace permissions. Apply the developer access migration.");
-        role = parsed.data;
-      }
+      const { snapshot, role: currentRole } = await readRelationalWorkspace(client, workspaceOwner, userId);
+      role = currentRole;
       onRole?.(role);
       return snapshot;
     },

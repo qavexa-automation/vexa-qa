@@ -13,7 +13,8 @@ export const memberRoleOptions = [
 ];
 
 export function canOpenWorkspaceView(role: WorkspaceRole, view: string) {
-  return role !== "developer" || ["Modification Tracker", "Test lab", "Settings"].includes(view);
+  return role !== "developer" ||
+    ["All workspaces", "Modification Tracker", "Test lab", "Settings"].includes(view);
 }
 
 /** Developers cannot change record order, add/remove tests, or change any other field. */

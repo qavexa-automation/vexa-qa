@@ -1,14 +1,15 @@
 "use client";
 import { useEffect, useState } from "react";
-import { Copy, Users } from "lucide-react";
+import { Copy, Layers, Users } from "lucide-react";
 import { ConfirmDialog } from "@/components/forms/confirm-dialog";
 import { OptionCombobox } from "@/components/forms/option-combobox";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Field, FieldDescription, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
+import { Switch } from "@/components/ui/switch";
 import { supabase } from "@/lib/supabase";
-import type { SharedWorkspace } from "@/lib/use-workspace";
+import type { SharedWorkspace } from "@/lib/relational-workspace";
 import { memberRoleOptions, memberRoleSchema, WorkspaceMembers, type MemberRole, type WorkspaceMember, type WorkspaceRole } from "@/features/workspace-access";
 
 type Invite = { code: string; expires_at: string; role: string };
@@ -17,7 +18,10 @@ export default function WorkspaceSharing({
   userId,
   owner,
   workspaces,
+  combineModuleRecords,
+  onCombineModuleRecordsChange,
   onSwitch,
+  onViewAll,
   onJoin,
   flush,
   role,
@@ -25,7 +29,10 @@ export default function WorkspaceSharing({
   userId: string;
   owner: string;
   workspaces: SharedWorkspace[];
+  combineModuleRecords: boolean;
+  onCombineModuleRecordsChange: (combine: boolean) => void;
   onSwitch: (owner: string) => Promise<void>;
+  onViewAll: () => void;
   onJoin: (code: string) => Promise<void>;
   flush: () => Promise<void>;
   role: WorkspaceRole;
@@ -121,6 +128,26 @@ export default function WorkspaceSharing({
             if (next !== owner) void run(() => onSwitch(next));
           }}
         />
+        {workspaces.length > 0 && (
+          <Field orientation="horizontal">
+            <div>
+              <FieldLabel htmlFor="combine-module-records">Combine module records</FieldLabel>
+              <FieldDescription id="combine-module-records-help">
+                Show records from your workspaces together in each module.
+              </FieldDescription>
+            </div>
+            <Switch
+              id="combine-module-records"
+              aria-describedby="combine-module-records-help"
+              checked={combineModuleRecords}
+              onCheckedChange={onCombineModuleRecordsChange}
+            />
+          </Field>
+        )}
+        <Button className="self-start" onClick={onViewAll} type="button" variant="outline">
+          <Layers aria-hidden="true" />
+          View all workspaces
+        </Button>
         {own ? (
           <>
             <div className="flex flex-col items-start gap-2">

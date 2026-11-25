@@ -2,6 +2,7 @@
 
 import { useRef, useState, type FormEvent } from "react";
 import { Button } from "@/components/ui/button";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Field, FieldError, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
@@ -15,12 +16,13 @@ import { blankEvent } from "../lib/calendar";
 import { calendarEventInputSchema } from "../schemas/calendar-event-schema";
 import { ACTIVITY_KINDS, ACTIVITY_STATUSES, type CalendarEvent, type CalendarEventInput } from "../types/calendar-event";
 
-export function ActivityForm({ event, date, projects, disabled, onSave, onClose }: {
+export function ActivityForm({ event, date, projects, disabled, workspaceLabel, onSave, onClose }: {
   event: CalendarEvent | null;
   date: string;
   projects: Project[];
   disabled: boolean;
-  onSave: (event: CalendarEvent) => void;
+  workspaceLabel?: string;
+  onSave: (event: CalendarEvent) => void | Promise<void>;
   onClose: () => void;
 }) {
   const [initial] = useState<CalendarEventInput>(() => event ? {
@@ -32,17 +34,25 @@ export function ActivityForm({ event, date, projects, disabled, onSave, onClose 
   } : blankEvent(date));
   const [values, setValues] = useState(initial);
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const [saveError, setSaveError] = useState("");
+  const [pending, setPending] = useState(false);
   const [discard, setDiscard] = useState(false);
+  const [eventId] = useState(() => event?.id ?? crypto.randomUUID());
   const formRef = useRef<HTMLFormElement>(null);
+  const saveErrorRef = useRef<HTMLDivElement>(null);
   const submitting = useRef(false);
   const dirty = JSON.stringify(initial) !== JSON.stringify(values);
   const change = <K extends keyof CalendarEventInput>(key: K, value: CalendarEventInput[K]) => {
     setValues((current) => ({ ...current, [key]: value }));
     setErrors((current) => ({ ...current, [key]: "" }));
   };
-  const requestClose = () => dirty ? setDiscard(true) : onClose();
+  const requestClose = () => {
+    if (submitting.current) return;
+    if (dirty) setDiscard(true);
+    else onClose();
+  };
 
-  function submit(e: FormEvent<HTMLFormElement>) {
+  async function submit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     if (disabled || submitting.current) return;
     const result = calendarEventInputSchema.safeParse(values);
@@ -54,8 +64,18 @@ export function ActivityForm({ event, date, projects, disabled, onSave, onClose 
       return;
     }
     submitting.current = true;
-    onSave({ ...result.data, id: event?.id ?? crypto.randomUUID() });
-    onClose();
+    setPending(true);
+    setSaveError("");
+    try {
+      await onSave({ ...result.data, id: eventId });
+      onClose();
+    } catch (error) {
+      setSaveError(error instanceof Error ? error.message : "Unable to save the activity. Try again.");
+      requestAnimationFrame(() => saveErrorRef.current?.focus());
+    } finally {
+      submitting.current = false;
+      setPending(false);
+    }
   }
 
   function textField(key: "title" | "startDate" | "endDate" | "startTime" | "endTime" | "location", label: string, type = "text", required = false) {
@@ -73,10 +93,10 @@ export function ActivityForm({ event, date, projects, disabled, onSave, onClose 
       <DialogContent className="max-h-[calc(100dvh-2rem)] overflow-y-auto sm:max-w-xl">
         <DialogHeader className="pr-6">
           <DialogTitle className="font-sans text-xl font-semibold">{event ? "Edit activity" : "New activity"}</DialogTitle>
-          <DialogDescription>Plan your QA work. All dates and times use Asia/Manila (UTC+8).</DialogDescription>
+          <DialogDescription>{workspaceLabel && `${workspaceLabel} · `}All dates and times use Asia/Manila (UTC+8).</DialogDescription>
         </DialogHeader>
         <form ref={formRef} onSubmit={submit} noValidate>
-          <fieldset disabled={disabled} className="m-0 grid min-w-0 gap-4 border-0 p-0">
+          <fieldset disabled={disabled || pending} className="m-0 grid min-w-0 gap-4 border-0 p-0">
             {textField("title", "Activity title", "text", true)}
             <div className="grid gap-4 sm:grid-cols-2">
               <OptionCombobox id="activity-kind" label="Activity type *" placeholder="Select activity type"
@@ -108,11 +128,14 @@ export function ActivityForm({ event, date, projects, disabled, onSave, onClose 
                 value={values.notes} onChange={(e) => change("notes", e.target.value)} />
             </Field>
             {Object.values(errors).some(Boolean) && <p role="alert" className="text-sm text-destructive">Check the highlighted fields before saving.</p>}
-            <div className="flex justify-end gap-2 border-t border-border pt-4">
-              <Button type="button" variant="outline" onClick={requestClose}>Cancel</Button>
-              <Button type="submit">{event ? "Save changes" : "Add activity"}</Button>
-            </div>
           </fieldset>
+          {saveError && <Alert className="mt-4" ref={saveErrorRef} tabIndex={-1} variant="destructive"><AlertDescription>{saveError}</AlertDescription></Alert>}
+          <div className="mt-4 flex justify-end gap-2 border-t border-border pt-4">
+            <Button type="button" variant="outline" disabled={pending} onClick={requestClose}>Cancel</Button>
+            <Button className="min-w-28" type="submit" disabled={disabled || pending}>
+              {pending ? "Saving…" : event ? "Save changes" : "Add activity"}
+            </Button>
+          </div>
         </form>
       </DialogContent>
     </Dialog>

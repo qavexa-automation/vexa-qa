@@ -1,4 +1,4 @@
-import { metrics, PRIORITIES, STATUSES, type Workspace } from "./model";
+import { emptyWorkspace, metrics, PRIORITIES, STATUSES, type Workspace } from "./model";
 import { MODIFICATION_XP, questBoardIssues } from "./modification-quests";
 
 export function dashboardBacklog(workspace: Workspace, search = "") {
@@ -56,6 +56,37 @@ export function dashboardSummary(workspace: Workspace) {
       ]),
     ),
   };
+}
+
+const sharedOverviewCounts = [
+  "tests", "run", "passed", "notTested", "failedTests",
+  "modifications", "openModifications", "doneModifications",
+] as const;
+const fullOverviewCounts = [
+  "projects", "total", "done", "bugs", "critical",
+  "deployments", "deployed", "failedDeployments", "xp",
+] as const;
+const overviewCounts = [...sharedOverviewCounts, ...fullOverviewCounts];
+
+export type OverviewTotals = Pick<
+  ReturnType<typeof dashboardSummary>,
+  (typeof overviewCounts)[number] | "passRate"
+>;
+
+export function overviewTotals(
+  sources: readonly { workspace: Workspace; canViewOverview: boolean }[],
+): OverviewTotals {
+  const empty = dashboardSummary(emptyWorkspace());
+  const totals = Object.fromEntries(overviewCounts.map((count) => [count, empty[count]])) as Omit<
+    OverviewTotals, "passRate"
+  >;
+  for (const { workspace, canViewOverview } of sources) {
+    const summary = dashboardSummary(workspace);
+    // Developers can see test and modification records even when Overview is unavailable there.
+    for (const count of canViewOverview ? overviewCounts : sharedOverviewCounts)
+      totals[count] += summary[count];
+  }
+  return { ...totals, passRate: totals.run ? Math.round((totals.passed / totals.run) * 100) : 0 };
 }
 
 export function workspaceContributors(workspace: Workspace) {

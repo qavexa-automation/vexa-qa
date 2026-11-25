@@ -125,10 +125,16 @@ import { workspaceContributors } from "@/lib/dashboard";
 import WorkspaceSharing from "@/components/workspace-sharing";
 import ThemeSwitcher from "@/components/theme-switcher";
 import { ActivityCalendarScreen } from "@/features/activity-calendar";
+import {
+  AllWorkspacesScreen,
+  TeamActivityCalendar,
+  workspaceRecordTypeForView,
+} from "@/features/all-workspaces";
 import { removeAttachments, useRecordAttachments } from "@/features/attachments";
 
 type View =
   | "Overview"
+  | "All workspaces"
   | "Activity Calendar"
   | "Quest board"
   | "Modification Tracker"
@@ -172,6 +178,7 @@ const navigation: { title: string; items: { name: View; icon: LucideIcon }[] }[]
 const icons: Record<Issue["type"], LucideIcon> = { Bug, Task: CheckCheck, Story: BookOpen };
 const descriptions: Record<View, string> = {
   Overview: "Your next great release starts here.",
+  "All workspaces": "View and edit records across your workspaces.",
   "Activity Calendar": "Plan meetings, test sessions, and releases across the month.",
   "Quest board": "Every issue is a quest. Make your next move.",
   "Modification Tracker": "Track project changes, modules, and modification progress.",
@@ -284,7 +291,21 @@ export default function CommandCenter() {
   } = useWorkspace();
   const [requestedView, setView] = useState<View>("Overview");
   const developerOnly = role === "developer";
-  const view = canOpenWorkspaceView(role, requestedView) ? requestedView : "Modification Tracker";
+  const view =
+    requestedView === "All workspaces" && !user
+      ? "Overview"
+      : canOpenWorkspaceView(role, requestedView)
+        ? requestedView
+        : "Modification Tracker";
+  const [combineModuleRecords, setCombineModuleRecords] = useState(true);
+  const [currentWorkspaceView, setCurrentWorkspaceView] = useState<View | null>(null);
+  const moduleRecordType = workspaceRecordTypeForView(view);
+  const teamCalendar = view === "Activity Calendar" && !!user;
+  const combinedModule = !!(
+    user && moduleRecordType && sharedWorkspaces.length &&
+    combineModuleRecords && currentWorkspaceView !== view
+  );
+  const combinedView = view === "All workspaces" || combinedModule || teamCalendar;
   const [achievementMotionPaused, setAchievementMotionPaused] = useState(false);
   const [search, setSearch] = useState("");
   const [priority, setPriority] = useState("");
@@ -301,7 +322,7 @@ export default function CommandCenter() {
           e.target instanceof HTMLElement &&
           (e.target.matches("input, textarea, select") || e.target.isContentEditable)
         ) &&
-        !document.querySelector("dialog[open]")
+        !document.querySelector('dialog[open], [data-slot="dialog-content"][data-open]')
       ) {
         e.preventDefault();
         searchInput.current?.focus();
@@ -385,11 +406,15 @@ export default function CommandCenter() {
         ),
       })),
   });
-  const navigate = (next: View) => {
+  const navigate = (next: View, currentWorkspaceOnly = false) => {
     setView(canOpenWorkspaceView(role, next) ? next : "Modification Tracker");
+    setCurrentWorkspaceView(currentWorkspaceOnly ? next : null);
     setSearch("");
     setSidebar(false);
     setNotifications(false);
+  };
+  const navigateInCurrentWorkspace = (next: View) => {
+    navigate(next, true);
   };
   // Changes to a modification card are saved on the modification itself.
   const updateModification = (
@@ -416,7 +441,7 @@ export default function CommandCenter() {
     const modification = modificationForQuest(workspace.modifications, issue.id);
     if (!modification) return setIssueModal(issue);
     setModificationToOpen(modification.id);
-    navigate("Modification Tracker");
+    navigateInCurrentWorkspace("Modification Tracker");
   };
   const updatePriority = (id: string, priority: Priority) => {
     if (!ready) return;
@@ -555,7 +580,10 @@ export default function CommandCenter() {
         </button>
         <p className="brand-tagline">Verification and Execution Automation</p>
         <nav>
-          {navigation.map((group) => ({ ...group, items: group.items.filter(({ name }) => canOpenWorkspaceView(role, name)) })).filter((group) => group.items.length).map((group) => (
+          {navigation.map((group) => ({
+            ...group,
+            items: group.items.filter(({ name }) => canOpenWorkspaceView(role, name)),
+          })).filter((group) => group.items.length).map((group) => (
             <div className="nav-group" key={group.title}>
               <span className="nav-label">{group.title}</span>
               {group.items.map(({ name, icon: Icon }) => (
@@ -676,47 +704,49 @@ export default function CommandCenter() {
             <strong>{view}</strong>
           </div>
           <div className="topbar-actions">
-            <InputGroup className="global-search-field h-9 w-64 max-w-full bg-glass">
-              <InputGroupAddon>
-                <Search aria-hidden="true" />
-              </InputGroupAddon>
-              <InputGroupInput
-                ref={searchInput}
-                aria-label="Search workspace"
-                placeholder={
-                  view === "Activity Calendar"
-                    ? "Search activities…"
-                    : view === "Modification Tracker"
-                      ? "Search modifications…"
-                      : view === "Deployment Tracker"
-                        ? "Search deployments…"
-                        : view === "Project Maintenance"
-                          ? "Search projects…"
-                          : view === "Test lab"
-                            ? "Search test cases…"
-                            : "Search quests…"
-                }
-                value={search}
-                onChange={(e) => {
-                  setSearch(e.target.value);
-                  if (
-                    ![
-                      "Quest board",
-                      "Test lab",
-                      "Overview",
-                      "Activity Calendar",
-                      "Project Maintenance",
-                      "Deployment Tracker",
-                      "Modification Tracker",
-                    ].includes(view)
-                  )
-                    setView("Quest board");
-                }}
-              />
-              <InputGroupAddon align="inline-end">
-                <Kbd>/</Kbd>
-              </InputGroupAddon>
-            </InputGroup>
+            {!combinedView && (
+              <InputGroup className="global-search-field h-9 w-64 max-w-full bg-glass">
+                <InputGroupAddon>
+                  <Search aria-hidden="true" />
+                </InputGroupAddon>
+                <InputGroupInput
+                  ref={searchInput}
+                  aria-label="Search workspace"
+                  placeholder={
+                    view === "Activity Calendar"
+                      ? "Search activities…"
+                      : view === "Modification Tracker"
+                        ? "Search modifications…"
+                        : view === "Deployment Tracker"
+                          ? "Search deployments…"
+                          : view === "Project Maintenance"
+                            ? "Search projects…"
+                            : view === "Test lab"
+                              ? "Search test cases…"
+                              : "Search quests…"
+                  }
+                  value={search}
+                  onChange={(e) => {
+                    setSearch(e.target.value);
+                    if (
+                      ![
+                        "Quest board",
+                        "Test lab",
+                        "Overview",
+                        "Activity Calendar",
+                        "Project Maintenance",
+                        "Deployment Tracker",
+                        "Modification Tracker",
+                      ].includes(view)
+                    )
+                      setView("Quest board");
+                  }}
+                />
+                <InputGroupAddon align="inline-end">
+                  <Kbd>/</Kbd>
+                </InputGroupAddon>
+              </InputGroup>
+            )}
             <span className="demo-badge">
               <i />
               {user ? "CLOUD" : "LOCAL MODE"}
@@ -785,7 +815,7 @@ export default function CommandCenter() {
               <p>{descriptions[view]}</p>
             </div>
             <div className={`heading-actions ${view === "Test lab" ? "test-lab-actions" : ""}`}>
-              {view === "Test lab" && (
+              {view === "Test lab" && !combinedModule && (
                 <FilterCombobox
                   allLabel="All projects"
                   className="w-52"
@@ -813,7 +843,7 @@ export default function CommandCenter() {
             </div>
           </div>
           )}
-          {developerOnly && (
+          {developerOnly && !combinedView && (
             <Alert className="mb-4">
               <AlertDescription>Developer access: view modifications and edit Developer remarks in Test Lab. Other QA fields are read-only.</AlertDescription>
             </Alert>
@@ -829,23 +859,42 @@ export default function CommandCenter() {
               {user && <button onClick={() => void supabase?.auth.signOut()}>Sign out</button>}
             </div>
           )}
-          {!ready && !error && (
+          {!ready && !error && !combinedView && (
             <div className="loading-line">
               <LoaderCircle size={14} className="spin" />
               Loading your workspace…
             </div>
           )}
-          <fieldset disabled={!ready || !!error} className="workspace-content">
+          {combinedView && user && (
+            teamCalendar ? (
+              <TeamActivityCalendar
+                key={user.id}
+                searchInput={searchInput}
+                userId={user.id}
+                onNotice={notify}
+                onManageProjects={() => navigate("Project Maintenance")}
+              />
+            ) : (
+              <AllWorkspacesScreen
+                key={`${user.id}:${view}`}
+                moduleRecordType={combinedModule ? moduleRecordType : undefined}
+                searchInput={searchInput}
+                userId={user.id}
+              />
+            )
+          )}
+          {!combinedView && <fieldset disabled={!ready || !!error} className="workspace-content">
             {view === "Overview" && (
               <WorkspaceDashboard
                 workspace={workspace}
+                userId={user?.id}
                 userName={user ? profileName : undefined}
                 search={search}
                 renderIssues={issueRows}
                 renderContributors={leaderboard}
                 onNavigate={navigate}
                 onCriticalQuests={() => {
-                  navigate("Quest board");
+                  navigateInCurrentWorkspace("Quest board");
                   setPriority("Critical");
                   setTypeFilter("");
                   setQuestProjectFilter("");
@@ -859,9 +908,18 @@ export default function CommandCenter() {
                 projects={projects}
                 search={search}
                 disabled={!ready || !!error}
-                onChange={(calendarEvents) => setWorkspace((w) => ({ ...w, calendarEvents }))}
+                onSave={(activity, original) => setWorkspace((w) => ({
+                  ...w,
+                  calendarEvents: original
+                    ? (w.calendarEvents ?? []).map((event) => event.id === activity.id ? activity : event)
+                    : [...(w.calendarEvents ?? []), activity],
+                }))}
+                onDelete={(activity) => setWorkspace((w) => ({
+                  ...w,
+                  calendarEvents: (w.calendarEvents ?? []).filter((event) => event.id !== activity.id),
+                }))}
                 onNotice={notify}
-                onManageProjects={() => navigate("Project Maintenance")}
+                onManageProjects={() => navigateInCurrentWorkspace("Project Maintenance")}
               />
             )}
             {view === "Quest board" && (
@@ -1057,7 +1115,7 @@ export default function CommandCenter() {
                 search={search}
                 onChange={(modifications) => setWorkspace((w) => ({ ...w, modifications }))}
                 onNotice={notify}
-                onManageProjects={() => navigate("Project Maintenance")}
+                onManageProjects={() => navigateInCurrentWorkspace("Project Maintenance")}
                 openId={modificationToOpen ?? undefined}
                 onOpened={() => setModificationToOpen(null)}
                 workspaceOwner={owner}
@@ -1545,7 +1603,7 @@ export default function CommandCenter() {
                 search={search}
                 onChange={(deployments) => setWorkspace((w) => ({ ...w, deployments }))}
                 onNotice={notify}
-                onManageProjects={() => navigate("Project Maintenance")}
+                onManageProjects={() => navigateInCurrentWorkspace("Project Maintenance")}
               />
             )}
             {view === "Project Maintenance" && (
@@ -1652,7 +1710,10 @@ export default function CommandCenter() {
                       owner={owner}
                       role={role}
                       workspaces={sharedWorkspaces}
+                      combineModuleRecords={combineModuleRecords}
+                      onCombineModuleRecordsChange={setCombineModuleRecords}
                       onSwitch={switchWorkspace}
+                      onViewAll={() => navigate("All workspaces")}
                       onJoin={joinWorkspace}
                       flush={flush}
                     />
@@ -1660,7 +1721,7 @@ export default function CommandCenter() {
                 )}
               </div>
             )}
-          </fieldset>
+          </fieldset>}
           <footer className="app-footer">
             <span>
               <span className={`live-dot ${error ? "error-dot" : ""}`} />
@@ -1680,7 +1741,7 @@ export default function CommandCenter() {
           projects={workspace.projects ?? []}
           onManageProjects={() => {
             setIssueModal(null);
-            navigate("Project Maintenance");
+            navigateInCurrentWorkspace("Project Maintenance");
           }}
           onClose={() => setIssueModal(null)}
           onSave={(issue) => {
@@ -1729,11 +1790,14 @@ export default function CommandCenter() {
           key={`${owner}:${role}:${testModal === "new" ? "new" : testModal.id}`}
           remarksOnly={developerOnly}
           test={testModal}
-          initialProjectId={selectedTestProject?.id}
+          initialProjectId={combinedModule ? undefined : selectedTestProject?.id}
+          workspaceLabel={combinedModule && testModal === "new"
+            ? owner === user?.id ? "My workspace" : sharedWorkspaces.find((workspace) => workspace.owner === owner)?.label
+            : undefined}
           projects={workspace.projects ?? []}
           onManageProjects={() => {
             setTestModal(null);
-            navigate("Project Maintenance");
+            navigateInCurrentWorkspace("Project Maintenance");
           }}
           onClose={() => setTestModal(null)}
           onSave={(test) => {
@@ -2058,6 +2122,7 @@ function TestDialog({
   remarksOnly = false,
   test,
   initialProjectId,
+  workspaceLabel,
   projects,
   onManageProjects,
   onClose,
@@ -2068,6 +2133,7 @@ function TestDialog({
   remarksOnly?: boolean;
   test: TestCase | "new";
   initialProjectId?: string;
+  workspaceLabel?: string;
   projects: Project[];
   onManageProjects: () => void;
   onClose: () => void;
@@ -2099,7 +2165,7 @@ function TestDialog({
   return (
     <Modal
       title={isNew ? "Create a test case" : test.id}
-      subtitle={remarksOnly ? "Review the test case and update Developer remarks." : "Clear steps. Clear expectations. Confident releases."}
+      subtitle={workspaceLabel ? `New test cases are saved to ${workspaceLabel}.` : remarksOnly ? "Review the test case and update Developer remarks." : "Clear steps. Clear expectations. Confident releases."}
       onClose={close}
       wide
     >

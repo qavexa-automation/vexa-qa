@@ -8,8 +8,8 @@ function fixture(): Workspace {
 }
 
 describe("Developer workspace access", () => {
-  it("opens only the tracker, Test Lab and account settings", () => {
-    for (const view of ["Modification Tracker", "Test lab", "Settings"]) expect(canOpenWorkspaceView("developer", view)).toBe(true);
+  it("opens the tracker, Test Lab, account settings and the combined workspace view", () => {
+    for (const view of ["All workspaces", "Modification Tracker", "Test lab", "Settings"]) expect(canOpenWorkspaceView("developer", view)).toBe(true);
     for (const view of ["Overview", "Quest board", "Project Maintenance", "Deployment Tracker"]) {
       expect(canOpenWorkspaceView("developer", view)).toBe(false);
       expect(canOpenWorkspaceView("editor", view)).toBe(true);

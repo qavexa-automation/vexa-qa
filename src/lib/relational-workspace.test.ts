@@ -3,7 +3,7 @@ import { PGlite } from "@electric-sql/pglite";
 import { createClient } from "@supabase/supabase-js";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { emptyWorkspace, PROJECT_STATUSES, type Workspace } from "./model";
-import { parseCloudSnapshot, relationalBackend, workspaceForSave } from "./relational-workspace";
+import { parseCloudSnapshot, readTeamCalendarWorkspace, relationalBackend, workspaceForSave } from "./relational-workspace";
 
 const A = "10000000-0000-4000-8000-000000000001";
 const B = "10000000-0000-4000-8000-000000000002";
@@ -820,6 +820,38 @@ describe("relational workspace database", () => {
 });
 
 describe("relational transport", () => {
+  it("resolves the same oldest shared calendar for an owner and Editor with overlapping teams", async () => {
+    const resolutions: URL[] = [];
+    const client = createClient("https://vexa.example", "sb_publishable_test", {
+      auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
+      global: {
+        fetch: async (input) => {
+          const url = new URL(String(input));
+          const member = url.searchParams.get("member_id");
+          const owner = url.searchParams.get("workspace_owner");
+          if (url.pathname.endsWith("/qa_workspace_members")) {
+            const existing = owner === `eq.${A}` || member === `eq.${C}`
+              ? [{ workspace_owner: A }]
+              : owner === `eq.${C}` ? [{ workspace_owner: C }] : [];
+            return Response.json(existing);
+          }
+          resolutions.push(url);
+          return Response.json([{ user_id: A }]);
+        },
+      },
+    });
+
+    await expect(readTeamCalendarWorkspace(client, A)).resolves.toMatchObject({ owner: A });
+    await expect(readTeamCalendarWorkspace(client, C)).resolves.toMatchObject({ owner: A });
+    await expect(readTeamCalendarWorkspace(client, B)).resolves.toEqual({ owner: B, label: "My workspace" });
+    expect(resolutions.map((url) => url.searchParams.get("user_id"))).toEqual([
+      `in.(${A})`,
+      `in.(${A},${C})`,
+    ]);
+    expect(resolutions[1].searchParams.get("order")).toBe("created_at.asc,user_id.asc");
+    expect(resolutions[1].searchParams.get("limit")).toBe("1");
+  });
+
   function backendWithResponse(data: unknown, status = 200, userId = A) {
     const requests: { url: string; body: Record<string, unknown> }[] = [];
     const roles: string[] = [];

@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { CalendarPlus, ChevronLeft, ChevronRight, Filter } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -31,17 +31,21 @@ export function ActivityCalendarScreen({
   projects,
   search,
   disabled = false,
-  onChange,
+  onSave,
+  onDelete,
   onNotice,
   onManageProjects,
+  workspaceLabel,
 }: {
   events: CalendarEvent[];
   projects: Project[];
   search: string;
   disabled?: boolean;
-  onChange: (events: CalendarEvent[]) => void;
+  onSave: (event: CalendarEvent, original: CalendarEvent | null) => void | Promise<void>;
+  onDelete: (event: CalendarEvent) => void | Promise<void>;
   onNotice: (message: string) => void;
   onManageProjects: () => void;
+  workspaceLabel?: string;
 }) {
   const today = manilaToday();
   const [month, setMonth] = useState(() => today.slice(0, 7));
@@ -51,6 +55,10 @@ export function ActivityCalendarScreen({
   const [projectFilter, setProjectFilter] = useState("");
   const [form, setForm] = useState<CalendarEvent | "new" | null>(null);
   const [deleting, setDeleting] = useState<CalendarEvent | null>(null);
+  const [actionError, setActionError] = useState("");
+  const [pending, setPending] = useState(false);
+  const mutating = useRef(false);
+  const actionsDisabled = disabled || pending;
 
   // A filter pointing at a deleted project would silently hide everything.
   const activeProjectFilter = projects.some((project) => project.id === projectFilter)
@@ -82,23 +90,29 @@ export function ActivityCalendarScreen({
     setSelected(today);
   }
 
-  function save(event: CalendarEvent) {
-    const existing = events.some((entry) => entry.id === event.id);
-    onChange(
-      existing
-        ? events.map((entry) => (entry.id === event.id ? event : entry))
-        : [...events, event],
-    );
+  async function mutate(action: () => void | Promise<void>) {
+    if (disabled || mutating.current) throw new Error("Wait for the current workspace change to finish.");
+    mutating.current = true;
+    setActionError("");
+    setPending(true);
+    try {
+      await action();
+    } finally {
+      mutating.current = false;
+      setPending(false);
+    }
+  }
+
+  async function save(event: CalendarEvent, original: CalendarEvent | null) {
+    await mutate(() => onSave(event, original));
     // Follow the activity if it was moved to another day or month.
     setMonth(event.startDate.slice(0, 7));
     setSelected(event.startDate);
-    onNotice(`${event.title} ${existing ? "updated" : "added"}`);
+    onNotice(`${event.title} ${original ? "updated" : "added"}`);
   }
 
-  function remove(event: CalendarEvent) {
-    onChange(events.filter((entry) => entry.id !== event.id));
-    setDeleting(null);
-    onNotice(`${event.title} deleted`);
+  function reportActionError(error: unknown) {
+    setActionError(error instanceof Error ? error.message : "Unable to update the activity. Try again.");
   }
 
   return (
@@ -155,12 +169,14 @@ export function ActivityCalendarScreen({
             options={projectOptions(projects)}
             value={activeProjectFilter}
           />
-          <Button disabled={disabled} onClick={() => setForm("new")}>
+          <Button disabled={actionsDisabled} onClick={() => setForm("new")}>
             <CalendarPlus aria-hidden="true" />
             Add activity
           </Button>
         </div>
       </div>
+
+      {actionError && <Alert variant="destructive"><AlertDescription>{actionError}</AlertDescription></Alert>}
 
       {!projects.length && (
         <Alert>
@@ -195,11 +211,12 @@ export function ActivityCalendarScreen({
         </Panel>
         <DayAgenda
           date={selected}
+          disabled={actionsDisabled}
           events={eventsOnDate(visible, selected)}
           onAdd={() => setForm("new")}
           onDelete={setDeleting}
           onEdit={setForm}
-          onSave={save}
+          onSave={(event, original) => void save(event, original).catch(reportActionError)}
           projects={projects}
         />
       </div>
@@ -210,8 +227,9 @@ export function ActivityCalendarScreen({
           disabled={disabled}
           event={form === "new" ? null : form}
           onClose={() => setForm(null)}
-          onSave={save}
+          onSave={(event) => save(event, form === "new" ? null : form)}
           projects={projects}
+          workspaceLabel={workspaceLabel}
         />
       )}
       <ConfirmDialog
@@ -222,7 +240,13 @@ export function ActivityCalendarScreen({
             : ""
         }
         onCancel={() => setDeleting(null)}
-        onConfirm={() => deleting && remove(deleting)}
+        onConfirm={() => {
+          if (!deleting) return;
+          setDeleting(null);
+          void mutate(() => onDelete(deleting))
+            .then(() => onNotice(`${deleting.title} deleted`))
+            .catch(reportActionError);
+        }}
         open={!!deleting}
         title="Delete this activity?"
       />

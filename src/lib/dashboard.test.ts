@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { dashboardBacklog, dashboardSummary, workspaceContributors } from "./dashboard";
+import { dashboardBacklog, dashboardSummary, overviewTotals, workspaceContributors } from "./dashboard";
 import { modificationQuestId, modificationQuests } from "./modification-quests";
 import { emptyWorkspace, STATUSES, type Issue, type Workspace } from "./model";
 import { demoWorkspace, removeUntouchedDemoData } from "./seed";
@@ -83,6 +83,38 @@ function actualWorkspace(): Workspace {
     ),
   };
 }
+
+describe("Overview totals across workspaces", () => {
+  it("counts records with matching IDs separately and weights pass rate by executed tests", () => {
+    const qa = actualWorkspace();
+    const q2 = actualWorkspace();
+    q2.tests = q2.tests.filter((test) => test.status !== "Failed");
+
+    const totals = overviewTotals([
+      { workspace: qa, canViewOverview: true },
+      { workspace: q2, canViewOverview: true },
+    ]);
+
+    expect(totals).toMatchObject({
+      projects: 4, total: 10, done: 4, bugs: 4, tests: 7, run: 3, passed: 2, passRate: 67,
+      failedTests: 1, notTested: 2, modifications: 4, deployments: 10, xp: 500,
+    });
+  });
+
+  it("counts visible tests and modifications for Developer workspaces without revealing other totals", () => {
+    const totals = overviewTotals([
+      { workspace: actualWorkspace(), canViewOverview: true },
+      { workspace: actualWorkspace(), canViewOverview: false },
+    ]);
+
+    expect(totals).toMatchObject({
+      projects: 2, total: 5, done: 2, bugs: 2, critical: 1,
+      tests: 8, run: 4, passed: 2, modifications: 4, doneModifications: 2,
+      deployments: 5, xp: 250,
+    });
+    expect(overviewTotals([])).toMatchObject({ projects: 0, run: 0, passRate: 0 });
+  });
+});
 
 describe("actual workspace dashboard", () => {
   it("shows backlog quests from the board and Modification Tracker in priority order", () => {

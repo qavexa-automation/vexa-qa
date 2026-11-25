@@ -5,13 +5,12 @@ import { emptyWorkspace, parseWorkspace, type Workspace } from "./model";
 import { removeUntouchedDemoData } from "./seed";
 import { supabase } from "./supabase";
 import { CloudWorkspace } from "./cloud-workspace";
-import { relationalBackend } from "./relational-workspace";
+import { listSharedWorkspaces, relationalBackend, type SharedWorkspace } from "./relational-workspace";
 import { displayNameSchema, type ProfileSaveResult } from "@/features/profile";
 import { canUpdateWorkspace, type WorkspaceRole } from "@/features/workspace-access";
 
 const STORAGE_KEY = "vexa-qa-demo-v1";
 export const LOCAL_WORKSPACE_BACKUP_KEY = `${STORAGE_KEY}-before-sample-cleanup`;
-export type SharedWorkspace = { owner: string; label: string };
 
 export function useWorkspace() {
   const [workspace, updateWorkspace] = useState<Workspace>(emptyWorkspace);
@@ -53,19 +52,8 @@ export function useWorkspace() {
         if (nextUser && supabase) {
           const client = supabase;
           setSync("Loading cloud workspace");
-          const membership = await client
-            .from("qa_workspace_members")
-            .select("workspace_owner")
-            .eq("member_id", nextUser.id);
-          if (membership.error)
-            throw new Error(
-              `${membership.error.message}. Run the relational workspace migration in supabase/migrations.`,
-            );
+          const shared = await listSharedWorkspaces(client, nextUser.id);
           if (epoch.current !== currentEpoch) return;
-          const shared = (membership.data ?? []).map((m) => ({
-            owner: m.workspace_owner as string,
-            label: `Team workspace ${String(m.workspace_owner).slice(0, 8)}`,
-          }));
           setSharedWorkspaces(shared);
           const savedOwner = selectedOwner ?? localStorage.getItem(`vexa-workspace-${nextUser.id}`);
           const workspaceOwner =
