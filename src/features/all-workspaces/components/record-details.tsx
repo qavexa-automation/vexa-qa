@@ -13,33 +13,17 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
-import { AttachmentCell, downloadAttachment } from "@/features/attachments";
 import type { Workspace } from "@/lib/model";
 import { supabase } from "@/lib/supabase";
 
 import { canEditRecord, createRecordEdit, type RecordEdit } from "../lib/record-edits";
 import { saveRecordEdit } from "../lib/save-record-edit";
 import type { WorkspaceRecord, WorkspaceSource } from "../lib/workspace-records";
+import { RecordAttachments } from "./record-attachments";
 import { RecordEditForm } from "./record-edit-form";
 import { DeleteRecordAction } from "./delete-record-action";
 import { WorkspaceInlineStatus } from "./workspace-inline-status";
 import { WorkspaceRecordsContext } from "./workspace-record-context";
-
-export function RecordAttachments({ record }: { record: WorkspaceRecord }) {
-  const client = supabase;
-  if (!record.attachments?.length || !client)
-    return <span className="text-muted-foreground">—</span>;
-  return (
-    <AttachmentCell
-      attachments={record.attachments}
-      onAdd={() => {}}
-      onLoad={(attachment) => downloadAttachment(client, attachment)}
-      onRemove={() => {}}
-      readOnly
-      subject={`${record.name} · ${record.workspace}`}
-    />
-  );
-}
 
 export function RecordDetails({
   record,
@@ -188,7 +172,9 @@ export function RecordDetails({
                   </div>
                 ))}
             </dl>
-            {!!record.attachments?.length && <RecordAttachments record={record} />}
+            {(record.type === "Test case" || record.type === "Modification") && (
+              <RecordAttachments record={record} />
+            )}
             <DeleteRecordAction record={record} onDeleted={close} />
           </>
         )}

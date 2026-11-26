@@ -16,7 +16,8 @@ import { PRIORITIES } from "@/lib/model";
 
 import { recordStatuses } from "../lib/record-status";
 import type { RecordType, WorkspaceRecord } from "../lib/workspace-records";
-import { RecordAttachments, RecordDetails } from "./record-details";
+import { RecordAttachments } from "./record-attachments";
+import { RecordDetails } from "./record-details";
 import { WorkspaceInlineStatus } from "./workspace-inline-status";
 import { WorkspaceRecordActions } from "./workspace-record-actions";
 
