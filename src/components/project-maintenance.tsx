@@ -25,11 +25,13 @@ export default function ProjectMaintenance({
   search,
   onChange,
   onNotice,
+  onCancelCreate,
 }: {
   projects: Project[];
   search: string;
   onChange: (projects: Project[]) => void;
   onNotice: (message: string) => void;
+  onCancelCreate?: () => void;
 }) {
   const [details, setDetails] = useState<ProjectDetails>(blankProject);
   // The form opens on demand: Add project, or Edit from a row.
@@ -64,6 +66,7 @@ export default function ProjectMaintenance({
   }
 
   function closeEditor() {
+    if (onCancelCreate) return onCancelCreate();
     reset();
     setEditorOpen(false);
   }
@@ -91,6 +94,74 @@ export default function ProjectMaintenance({
     nameInput.current?.focus();
   }
 
+  const editor = (
+    <form className="flex flex-col gap-4" onSubmit={save}>
+      <FieldGroup className="gap-4">
+        <Field>
+          <FieldLabel htmlFor="project-name">Project name</FieldLabel>
+          <Input
+            id="project-name"
+            ref={nameInput}
+            required
+            placeholder="Enter project name"
+            value={details.name}
+            onChange={(event) =>
+              setDetails((value) => ({ ...value, name: event.target.value }))
+            }
+          />
+        </Field>
+        <Field>
+          <FieldLabel htmlFor="project-department">Department/Section</FieldLabel>
+          <Input
+            id="project-department"
+            required
+            placeholder="Enter department or section"
+            value={details.department}
+            onChange={(event) =>
+              setDetails((value) => ({ ...value, department: event.target.value }))
+            }
+          />
+        </Field>
+        <Field>
+          <FieldLabel htmlFor="project-developer">Developer</FieldLabel>
+          <Input
+            id="project-developer"
+            required
+            placeholder="Enter developer name"
+            value={details.developer}
+            onChange={(event) =>
+              setDetails((value) => ({ ...value, developer: event.target.value }))
+            }
+          />
+        </Field>
+        <OptionCombobox
+          id="project-status"
+          label="Status"
+          options={statusOptions}
+          value={details.status}
+          placeholder="Select project status"
+          onChange={(status) => {
+            const selected = PROJECT_STATUSES.find((option) => option === status);
+            if (selected) setDetails((value) => ({ ...value, status: selected }));
+          }}
+        />
+      </FieldGroup>
+      {error && <FieldError>{error}</FieldError>}
+      <div className="flex flex-wrap gap-2">
+        <Button type="submit">
+          {editingId ? <Check aria-hidden="true" /> : <Plus aria-hidden="true" />}
+          {editingId ? "Save project" : "Add project"}
+        </Button>
+        <Button type="button" variant="outline" onClick={closeEditor}>
+          <X aria-hidden="true" />
+          Cancel
+        </Button>
+      </div>
+    </form>
+  );
+
+  if (onCancelCreate) return editor;
+
   return (
     <div className={editorOpen ? "project-maintenance" : "flex flex-col gap-[22px]"}>
       {editorOpen && (
@@ -112,69 +183,7 @@ export default function ProjectMaintenance({
           </>
         }
       >
-        <form className="flex flex-col gap-4" onSubmit={save}>
-          <FieldGroup className="gap-4">
-            <Field>
-              <FieldLabel htmlFor="project-name">Project name</FieldLabel>
-              <Input
-                id="project-name"
-                ref={nameInput}
-                required
-                placeholder="Enter project name"
-                value={details.name}
-                onChange={(event) =>
-                  setDetails((value) => ({ ...value, name: event.target.value }))
-                }
-              />
-            </Field>
-            <Field>
-              <FieldLabel htmlFor="project-department">Department/Section</FieldLabel>
-              <Input
-                id="project-department"
-                required
-                placeholder="Enter department or section"
-                value={details.department}
-                onChange={(event) =>
-                  setDetails((value) => ({ ...value, department: event.target.value }))
-                }
-              />
-            </Field>
-            <Field>
-              <FieldLabel htmlFor="project-developer">Developer</FieldLabel>
-              <Input
-                id="project-developer"
-                required
-                placeholder="Enter developer name"
-                value={details.developer}
-                onChange={(event) =>
-                  setDetails((value) => ({ ...value, developer: event.target.value }))
-                }
-              />
-            </Field>
-            <OptionCombobox
-              id="project-status"
-              label="Status"
-              options={statusOptions}
-              value={details.status}
-              placeholder="Select project status"
-              onChange={(status) => {
-                const selected = PROJECT_STATUSES.find((option) => option === status);
-                if (selected) setDetails((value) => ({ ...value, status: selected }));
-              }}
-            />
-          </FieldGroup>
-          {error && <FieldError>{error}</FieldError>}
-          <div className="flex flex-wrap gap-2">
-            <Button type="submit">
-              {editingId ? <Check aria-hidden="true" /> : <Plus aria-hidden="true" />}
-              {editingId ? "Save project" : "Add project"}
-            </Button>
-            <Button type="button" variant="outline" onClick={closeEditor}>
-              <X aria-hidden="true" />
-              Cancel
-            </Button>
-          </div>
-        </form>
+        {editor}
       </Panel>
       )}
 

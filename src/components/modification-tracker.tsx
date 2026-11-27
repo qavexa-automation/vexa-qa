@@ -59,6 +59,7 @@ export default function ModificationTracker({
   search,
   onChange,
   onNotice,
+  onCancelCreate,
   onManageProjects,
   openId,
   onOpened,
@@ -70,6 +71,7 @@ export default function ModificationTracker({
   search: string;
   onChange: (modifications: Modification[]) => void;
   onNotice: (message: string) => void;
+  onCancelCreate?: () => void;
   onManageProjects: () => void;
   /** Opens this modification in the edit form, e.g. when chosen on the Quest Board. */
   openId?: string;
@@ -167,6 +169,7 @@ export default function ModificationTracker({
     setError("");
   }
   function closeEditor() {
+    if (onCancelCreate) return onCancelCreate();
     reset();
     setEditorOpen(false);
   }
@@ -267,6 +270,177 @@ export default function ModificationTracker({
     }
   }
 
+  const editor = (
+    <form className="flex flex-col gap-4" onSubmit={save}>
+      <FieldGroup className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+        <OptionCombobox
+          id="modification-project"
+          label="Project name"
+          options={projectOptions(projects, editing)}
+          placeholder="Select a project"
+          triggerRef={projectInput}
+          value={details.projectId}
+          onChange={(value) => setDetails((current) => ({ ...current, projectId: value }))}
+        />
+        <Field>
+          <FieldLabel htmlFor="modification-module">Module</FieldLabel>
+          <Input
+            id="modification-module"
+            required
+            placeholder="Enter module"
+            value={details.module}
+            onChange={(event) =>
+              setDetails((value) => ({ ...value, module: event.target.value }))
+            }
+          />
+        </Field>
+        <Field>
+          <FieldLabel htmlFor="modification-developer">Developer</FieldLabel>
+          <Input
+            id="modification-developer"
+            readOnly
+            className="bg-muted text-muted-foreground"
+            aria-describedby="modification-developer-help"
+            placeholder="Select a project first"
+            value={developer}
+          />
+          <FieldDescription id="modification-developer-help">
+            {selectedProject
+              ? "Filled automatically from Project Maintenance."
+              : editing
+                ? "Saved developer for this archived project."
+                : "Filled automatically when you select a project."}
+          </FieldDescription>
+          {selectedProject && !developer.trim() && (
+            <Button
+              type="button"
+              variant="link"
+              className="h-auto justify-start p-0"
+              onClick={onManageProjects}
+            >
+              Set project developer <ArrowRight aria-hidden="true" />
+            </Button>
+          )}
+        </Field>
+        <OptionCombobox
+          id="modification-priority"
+          label="Priority"
+          options={valueOptions(PRIORITIES)}
+          placeholder="Select a priority"
+          value={details.priority}
+          onChange={(value) =>
+            setDetails((current) => ({
+              ...current,
+              priority: value as Modification["priority"],
+            }))
+          }
+        />
+        <OptionCombobox
+          id="modification-status"
+          label="Status"
+          options={valueOptions(STATUSES)}
+          placeholder="Select a status"
+          value={details.status}
+          onChange={(value) =>
+            setDetails((current) => ({ ...current, status: value as Modification["status"] }))
+          }
+        />
+        <Field>
+          <FieldLabel htmlFor="modification-requested">
+            Date requested{" "}
+            <span className="font-normal text-muted-foreground">(optional)</span>
+          </FieldLabel>
+          <Input
+            id="modification-requested"
+            type="date"
+            min="2000-01-01"
+            max={details.modifiedAt || undefined}
+            value={details.requestedAt}
+            onChange={(event) =>
+              setDetails((value) => ({ ...value, requestedAt: event.target.value }))
+            }
+          />
+        </Field>
+        <Field>
+          <FieldLabel htmlFor="modification-modified">
+            Date modified{" "}
+            <span className="font-normal text-muted-foreground">(optional)</span>
+          </FieldLabel>
+          <Input
+            id="modification-modified"
+            type="date"
+            min={details.requestedAt || "2000-01-01"}
+            aria-describedby="modification-modified-help"
+            value={details.modifiedAt}
+            onChange={(event) =>
+              setDetails((value) => ({ ...value, modifiedAt: event.target.value }))
+            }
+          />
+          <FieldDescription id="modification-modified-help">
+            Cannot be before the date requested.
+          </FieldDescription>
+        </Field>
+      </FieldGroup>
+      <Field>
+        <FieldLabel htmlFor="modification-details">Modification details</FieldLabel>
+        <Textarea
+          id="modification-details"
+          required
+          rows={3}
+          placeholder="Describe the requested change"
+          value={details.description}
+          onChange={(event) =>
+            setDetails((value) => ({ ...value, description: event.target.value }))
+          }
+        />
+      </Field>
+      <Field>
+        <FieldLabel htmlFor="modification-remarks">
+          Remarks <span className="font-normal text-muted-foreground">(optional)</span>
+        </FieldLabel>
+        <Textarea
+          id="modification-remarks"
+          rows={2}
+          placeholder="Add supporting remarks or progress notes"
+          value={details.notes}
+          onChange={(event) =>
+            setDetails((value) => ({ ...value, notes: event.target.value }))
+          }
+        />
+      </Field>
+      {!projects.length && !editing && (
+        <Alert>
+          <AlertDescription className="flex flex-wrap items-center gap-2">
+            Add a project in Project Maintenance before recording a modification.
+            <Button
+              type="button"
+              variant="link"
+              className="h-auto p-0"
+              onClick={onManageProjects}
+            >
+              Add project <ArrowRight aria-hidden="true" />
+            </Button>
+          </AlertDescription>
+        </Alert>
+      )}
+      {error && <FieldError>{error}</FieldError>}
+      <div className="flex flex-wrap gap-2">
+        <Button type="submit" disabled={!projects.length && !editing}>
+          {editingId ? <Check aria-hidden="true" /> : <Plus aria-hidden="true" />}
+          {editingId ? "Save modification" : "Add modification"}
+        </Button>
+        {(editingId || onCancelCreate) && (
+          <Button type="button" variant="outline" onClick={closeEditor}>
+            <X aria-hidden="true" />
+            Cancel
+          </Button>
+        )}
+      </div>
+    </form>
+  );
+
+  if (onCancelCreate) return readOnly ? null : editor;
+
   return (
     <div className="modification-layout">
       {!readOnly && editorOpen && (
@@ -291,172 +465,7 @@ export default function ModificationTracker({
             </>
           }
         >
-          <form className="flex flex-col gap-4" onSubmit={save}>
-            <FieldGroup className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-              <OptionCombobox
-                id="modification-project"
-                label="Project name"
-                options={projectOptions(projects, editing)}
-                placeholder="Select a project"
-                triggerRef={projectInput}
-                value={details.projectId}
-                onChange={(value) => setDetails((current) => ({ ...current, projectId: value }))}
-              />
-              <Field>
-                <FieldLabel htmlFor="modification-module">Module</FieldLabel>
-                <Input
-                  id="modification-module"
-                  required
-                  placeholder="Enter module"
-                  value={details.module}
-                  onChange={(event) =>
-                    setDetails((value) => ({ ...value, module: event.target.value }))
-                  }
-                />
-              </Field>
-              <Field>
-                <FieldLabel htmlFor="modification-developer">Developer</FieldLabel>
-                <Input
-                  id="modification-developer"
-                  readOnly
-                  className="bg-muted text-muted-foreground"
-                  aria-describedby="modification-developer-help"
-                  placeholder="Select a project first"
-                  value={developer}
-                />
-                <FieldDescription id="modification-developer-help">
-                  {selectedProject
-                    ? "Filled automatically from Project Maintenance."
-                    : editing
-                      ? "Saved developer for this archived project."
-                      : "Filled automatically when you select a project."}
-                </FieldDescription>
-                {selectedProject && !developer.trim() && (
-                  <Button
-                    type="button"
-                    variant="link"
-                    className="h-auto justify-start p-0"
-                    onClick={onManageProjects}
-                  >
-                    Set project developer <ArrowRight aria-hidden="true" />
-                  </Button>
-                )}
-              </Field>
-              <OptionCombobox
-                id="modification-priority"
-                label="Priority"
-                options={valueOptions(PRIORITIES)}
-                placeholder="Select a priority"
-                value={details.priority}
-                onChange={(value) =>
-                  setDetails((current) => ({
-                    ...current,
-                    priority: value as Modification["priority"],
-                  }))
-                }
-              />
-              <OptionCombobox
-                id="modification-status"
-                label="Status"
-                options={valueOptions(STATUSES)}
-                placeholder="Select a status"
-                value={details.status}
-                onChange={(value) =>
-                  setDetails((current) => ({ ...current, status: value as Modification["status"] }))
-                }
-              />
-              <Field>
-                <FieldLabel htmlFor="modification-requested">
-                  Date requested{" "}
-                  <span className="font-normal text-muted-foreground">(optional)</span>
-                </FieldLabel>
-                <Input
-                  id="modification-requested"
-                  type="date"
-                  min="2000-01-01"
-                  max={details.modifiedAt || undefined}
-                  value={details.requestedAt}
-                  onChange={(event) =>
-                    setDetails((value) => ({ ...value, requestedAt: event.target.value }))
-                  }
-                />
-              </Field>
-              <Field>
-                <FieldLabel htmlFor="modification-modified">
-                  Date modified{" "}
-                  <span className="font-normal text-muted-foreground">(optional)</span>
-                </FieldLabel>
-                <Input
-                  id="modification-modified"
-                  type="date"
-                  min={details.requestedAt || "2000-01-01"}
-                  aria-describedby="modification-modified-help"
-                  value={details.modifiedAt}
-                  onChange={(event) =>
-                    setDetails((value) => ({ ...value, modifiedAt: event.target.value }))
-                  }
-                />
-                <FieldDescription id="modification-modified-help">
-                  Cannot be before the date requested.
-                </FieldDescription>
-              </Field>
-            </FieldGroup>
-            <Field>
-              <FieldLabel htmlFor="modification-details">Modification details</FieldLabel>
-              <Textarea
-                id="modification-details"
-                required
-                rows={3}
-                placeholder="Describe the requested change"
-                value={details.description}
-                onChange={(event) =>
-                  setDetails((value) => ({ ...value, description: event.target.value }))
-                }
-              />
-            </Field>
-            <Field>
-              <FieldLabel htmlFor="modification-remarks">
-                Remarks <span className="font-normal text-muted-foreground">(optional)</span>
-              </FieldLabel>
-              <Textarea
-                id="modification-remarks"
-                rows={2}
-                placeholder="Add supporting remarks or progress notes"
-                value={details.notes}
-                onChange={(event) =>
-                  setDetails((value) => ({ ...value, notes: event.target.value }))
-                }
-              />
-            </Field>
-            {!projects.length && !editing && (
-              <Alert>
-                <AlertDescription className="flex flex-wrap items-center gap-2">
-                  Add a project in Project Maintenance before recording a modification.
-                  <Button
-                    type="button"
-                    variant="link"
-                    className="h-auto p-0"
-                    onClick={onManageProjects}
-                  >
-                    Add project <ArrowRight aria-hidden="true" />
-                  </Button>
-                </AlertDescription>
-              </Alert>
-            )}
-            {error && <FieldError>{error}</FieldError>}
-            <div className="flex flex-wrap gap-2">
-              <Button type="submit" disabled={!projects.length && !editing}>
-                {editingId ? <Check aria-hidden="true" /> : <Plus aria-hidden="true" />}
-                {editingId ? "Save modification" : "Add modification"}
-              </Button>
-              {editingId && (
-                <Button type="button" variant="outline" onClick={closeEditor}>
-                  <X aria-hidden="true" />
-                  Cancel
-                </Button>
-              )}
-            </div>
-          </form>
+          {editor}
         </Panel>
       )}
       <Panel

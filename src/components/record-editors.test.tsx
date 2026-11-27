@@ -1,6 +1,7 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 import DeploymentTracker from "@/components/deployment-tracker";
+import ModificationTracker from "@/components/modification-tracker";
 import ProjectMaintenance from "@/components/project-maintenance";
 import type { Deployment, Project } from "@/lib/model";
 
@@ -64,5 +65,31 @@ describe("Deployment Tracker editor", () => {
 
   it("still lists the deployment records", () => {
     expect(deploymentScreen()).toContain("1.2.0");
+  });
+});
+
+describe("combined record creation forms", () => {
+  const props = { search: "", onNotice: vi.fn(), onChange: vi.fn(), onCancelCreate: vi.fn() };
+
+  it("shows the project form without a second list", () => {
+    const html = renderToStaticMarkup(<ProjectMaintenance {...props} projects={[]} />);
+
+    expect(html).toContain("Enter project name");
+    expect(html).not.toContain("Project records");
+  });
+
+  it("shows how to add a project before creating a deployment or modification", () => {
+    const onManageProjects = vi.fn();
+    const deploymentForm = renderToStaticMarkup(
+      <DeploymentTracker {...props} projects={[]} deployments={[]} onManageProjects={onManageProjects} />,
+    );
+    const modificationForm = renderToStaticMarkup(
+      <ModificationTracker {...props} projects={[]} modifications={[]} onManageProjects={onManageProjects} />,
+    );
+
+    expect(deploymentForm).toContain("Add a project in Project Maintenance");
+    expect(deploymentForm).not.toContain("Deployment records");
+    expect(modificationForm).toContain("Add a project in Project Maintenance");
+    expect(modificationForm).not.toContain("Modification records");
   });
 });

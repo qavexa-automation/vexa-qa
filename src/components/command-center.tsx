@@ -306,6 +306,10 @@ export default function CommandCenter() {
   );
   const combinedView = view === "All workspaces" || combinedModule || teamCalendar;
   const combinedQuestBoard = combinedModule && view === "Quest board";
+  const combinedCreateLabel =
+    view === "Project Maintenance" ? "Add project"
+      : view === "Deployment Tracker" ? "Add deployment"
+        : view === "Modification Tracker" ? "Add modification" : undefined;
   const [achievementMotionPaused, setAchievementMotionPaused] = useState(false);
   const [search, setSearch] = useState("");
   const [priority, setPriority] = useState("");
@@ -418,6 +422,48 @@ export default function CommandCenter() {
   const navigateInCurrentWorkspace = (next: View) => {
     navigate(next, true);
   };
+  function renderCombinedCreateForm(close: () => void, refresh: () => void) {
+    const editorProps = { projects, search: "", onNotice: notify, onCancelCreate: close };
+    const onManageProjects = () => {
+      close();
+      navigateInCurrentWorkspace("Project Maintenance");
+    };
+    const create = (update: (workspace: Workspace) => Workspace) => {
+      setWorkspace(update);
+      close();
+      // The combined list reads saved cloud records. The workspace displays any save error.
+      void flush().then(refresh, refresh);
+    };
+    switch (view) {
+      case "Project Maintenance":
+        return (
+          <ProjectMaintenance
+            {...editorProps}
+            onChange={(next) => create((w) => updateProjects(w, next))}
+          />
+        );
+      case "Deployment Tracker":
+        return (
+          <DeploymentTracker
+            {...editorProps}
+            deployments={workspace.deployments ?? []}
+            onChange={(deployments) => create((w) => ({ ...w, deployments }))}
+            onManageProjects={onManageProjects}
+          />
+        );
+      case "Modification Tracker":
+        return (
+          <ModificationTracker
+            {...editorProps}
+            modifications={workspace.modifications ?? []}
+            onChange={(modifications) => create((w) => ({ ...w, modifications }))}
+            onManageProjects={onManageProjects}
+          />
+        );
+      default:
+        return null;
+    }
+  }
   const addQuest = (status: Status) => {
     setNewStatus(status);
     setIssueModal("new");
@@ -896,7 +942,17 @@ export default function CommandCenter() {
               />
             ) : (
               <AllWorkspacesScreen
-                key={`${user.id}:${view}`}
+                key={`${user.id}:${owner}:${role}:${view}`}
+                createRecord={
+                  combinedModule && combinedCreateLabel && !developerOnly
+                    ? {
+                        label: combinedCreateLabel,
+                        workspaceLabel: currentWorkspaceLabel ?? "Current workspace",
+                        disabled: !ready || !!error,
+                        renderForm: renderCombinedCreateForm,
+                      }
+                    : undefined
+                }
                 moduleRecordType={combinedModule ? moduleRecordType : undefined}
                 searchInput={searchInput}
                 userId={user.id}

@@ -1,5 +1,5 @@
-import { useMemo, useState, type Ref } from "react";
-import { Layers, RotateCw, Search } from "lucide-react";
+import { useMemo, useState, type ReactNode, type Ref } from "react";
+import { Layers, Plus, RotateCw, Search } from "lucide-react";
 
 import { DataTable } from "@/components/data-table/data-table";
 import { ResourceEmpty } from "@/components/data-table/resource-empty";
@@ -7,6 +7,7 @@ import { useClientTable } from "@/components/data-table/use-client-table";
 import { FilterCombobox, valueOptions } from "@/components/forms/filter-combobox";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { InputGroup, InputGroupAddon, InputGroupInput } from "@/components/ui/input-group";
 import { Skeleton } from "@/components/ui/skeleton";
 import { RecordTile } from "@/components/workspace-tables/cells";
@@ -30,10 +31,17 @@ export function AllWorkspacesScreen({
   userId,
   searchInput,
   moduleRecordType,
+  createRecord,
 }: {
   userId: string;
   searchInput: Ref<HTMLInputElement>;
   moduleRecordType?: RecordType;
+  createRecord?: {
+    label: string;
+    workspaceLabel: string;
+    disabled: boolean;
+    renderForm: (close: () => void, refresh: () => void) => ReactNode;
+  };
 }) {
   const { sources, loading, refreshing, error, refresh } = useAllWorkspaces(userId);
   const [recordType, setRecordType] = useState("");
@@ -41,6 +49,7 @@ export function AllWorkspacesScreen({
   const [selectedProject, setSelectedProject] = useState("");
   const [status, setStatus] = useState("");
   const [search, setSearch] = useState("");
+  const [createOpen, setCreateOpen] = useState(false);
   const isTestLab = moduleRecordType === "Test case";
   const ariaLabel = isTestLab
     ? "Test cases across workspaces"
@@ -176,6 +185,23 @@ export function AllWorkspacesScreen({
           <RotateCw aria-hidden="true" />
           Refresh
         </Button>
+        {createRecord && (
+          <Dialog open={createOpen} onOpenChange={setCreateOpen} disablePointerDismissal>
+            <DialogTrigger render={<Button type="button" disabled={createRecord.disabled} />}>
+              <Plus aria-hidden="true" />
+              {createRecord.label}
+            </DialogTrigger>
+            <DialogContent className="max-h-[calc(100dvh-2rem)] overflow-y-auto p-5 sm:max-w-2xl">
+              <DialogHeader className="pr-8">
+                <DialogTitle>{createRecord.label}</DialogTitle>
+                <DialogDescription>Workspace: {createRecord.workspaceLabel}</DialogDescription>
+              </DialogHeader>
+              <fieldset disabled={createRecord.disabled} className="min-w-0">
+                {createOpen && createRecord.renderForm(() => setCreateOpen(false), refresh)}
+              </fieldset>
+            </DialogContent>
+          </Dialog>
+        )}
       </div>
       {error && (
         <Alert variant="destructive">

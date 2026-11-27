@@ -43,6 +43,7 @@ export default function DeploymentTracker({
   search,
   onChange,
   onNotice,
+  onCancelCreate,
   onManageProjects,
 }: {
   projects: Project[];
@@ -50,6 +51,7 @@ export default function DeploymentTracker({
   search: string;
   onChange: (deployments: Deployment[]) => void;
   onNotice: (message: string) => void;
+  onCancelCreate?: () => void;
   onManageProjects: () => void;
 }) {
   const [details, setDetails] = useState<Details>(blankDetails);
@@ -101,6 +103,7 @@ export default function DeploymentTracker({
     setError("");
   }
   function closeEditor() {
+    if (onCancelCreate) return onCancelCreate();
     reset();
     setEditorOpen(false);
   }
@@ -136,6 +139,113 @@ export default function DeploymentTracker({
     projectInput.current?.focus();
   }
 
+  const editor = (
+    <form className="flex flex-col gap-4" onSubmit={save}>
+      <FieldGroup className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+        <OptionCombobox
+          id="deployment-project"
+          label="Project name"
+          options={projectOptions(projects, editing)}
+          placeholder="Select a project"
+          triggerRef={projectInput}
+          value={details.projectId}
+          onChange={(value) => setDetails((current) => ({ ...current, projectId: value }))}
+        />
+        <OptionCombobox
+          id="deployment-environment"
+          label="Environment"
+          options={valueOptions(DEPLOYMENT_ENVIRONMENTS)}
+          placeholder="Select an environment"
+          value={details.environment}
+          onChange={(value) =>
+            setDetails((current) => ({
+              ...current,
+              environment: value as Details["environment"],
+            }))
+          }
+        />
+        <Field>
+          <FieldLabel htmlFor="deployment-version">Version / Release</FieldLabel>
+          <Input
+            id="deployment-version"
+            required
+            placeholder="e.g. v1.0.0"
+            value={details.version}
+            onChange={(event) =>
+              setDetails((value) => ({ ...value, version: event.target.value }))
+            }
+          />
+        </Field>
+        <Field>
+          <FieldLabel htmlFor="deployment-date">Deployment date</FieldLabel>
+          <Input
+            id="deployment-date"
+            required
+            type="date"
+            min="0001-01-01"
+            max="9999-12-31"
+            value={details.deploymentDate}
+            onChange={(event) =>
+              setDetails((value) => ({ ...value, deploymentDate: event.target.value }))
+            }
+          />
+        </Field>
+        <OptionCombobox
+          id="deployment-status"
+          label="Status"
+          options={valueOptions(DEPLOYMENT_STATUSES)}
+          placeholder="Select a status"
+          value={details.status}
+          onChange={(value) =>
+            setDetails((current) => ({ ...current, status: value as Deployment["status"] }))
+          }
+        />
+        <Field>
+          <FieldLabel htmlFor="deployment-notes">
+            Notes <span className="font-normal text-muted-foreground">(optional)</span>
+          </FieldLabel>
+          <Textarea
+            id="deployment-notes"
+            rows={2}
+            placeholder="Release details or deployment notes"
+            value={details.notes}
+            onChange={(event) =>
+              setDetails((value) => ({ ...value, notes: event.target.value }))
+            }
+          />
+        </Field>
+      </FieldGroup>
+      {!projects.length && !editing && (
+        <Alert>
+          <AlertDescription className="flex flex-wrap items-center gap-2">
+            Add a project in Project Maintenance before recording a deployment.
+            <Button
+              type="button"
+              variant="link"
+              className="h-auto p-0"
+              onClick={onManageProjects}
+            >
+              Add project <ArrowRight aria-hidden="true" />
+            </Button>
+          </AlertDescription>
+        </Alert>
+      )}
+      {error && <FieldError>{error}</FieldError>}
+      <div className="flex flex-wrap gap-2">
+        <Button type="submit" disabled={!projects.length && !editing}>
+          {editingId ? <Check aria-hidden="true" /> : <Plus aria-hidden="true" />}
+          {editingId ? "Save deployment" : "Add deployment"}
+        </Button>
+        <Button type="button" variant="outline" onClick={closeEditor}>
+          <X aria-hidden="true" />
+          Cancel
+        </Button>
+      </div>
+    </form>
+  );
+
+  if (onCancelCreate) return editor;
+
   return (
     <div className="deployment-layout">
       {editorOpen && (
@@ -156,108 +266,7 @@ export default function DeploymentTracker({
           </>
         }
       >
-        <form className="flex flex-col gap-4" onSubmit={save}>
-          <FieldGroup className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-            <OptionCombobox
-              id="deployment-project"
-              label="Project name"
-              options={projectOptions(projects, editing)}
-              placeholder="Select a project"
-              triggerRef={projectInput}
-              value={details.projectId}
-              onChange={(value) => setDetails((current) => ({ ...current, projectId: value }))}
-            />
-            <OptionCombobox
-              id="deployment-environment"
-              label="Environment"
-              options={valueOptions(DEPLOYMENT_ENVIRONMENTS)}
-              placeholder="Select an environment"
-              value={details.environment}
-              onChange={(value) =>
-                setDetails((current) => ({
-                  ...current,
-                  environment: value as Details["environment"],
-                }))
-              }
-            />
-            <Field>
-              <FieldLabel htmlFor="deployment-version">Version / Release</FieldLabel>
-              <Input
-                id="deployment-version"
-                required
-                placeholder="e.g. v1.0.0"
-                value={details.version}
-                onChange={(event) =>
-                  setDetails((value) => ({ ...value, version: event.target.value }))
-                }
-              />
-            </Field>
-            <Field>
-              <FieldLabel htmlFor="deployment-date">Deployment date</FieldLabel>
-              <Input
-                id="deployment-date"
-                required
-                type="date"
-                min="0001-01-01"
-                max="9999-12-31"
-                value={details.deploymentDate}
-                onChange={(event) =>
-                  setDetails((value) => ({ ...value, deploymentDate: event.target.value }))
-                }
-              />
-            </Field>
-            <OptionCombobox
-              id="deployment-status"
-              label="Status"
-              options={valueOptions(DEPLOYMENT_STATUSES)}
-              placeholder="Select a status"
-              value={details.status}
-              onChange={(value) =>
-                setDetails((current) => ({ ...current, status: value as Deployment["status"] }))
-              }
-            />
-            <Field>
-              <FieldLabel htmlFor="deployment-notes">
-                Notes <span className="font-normal text-muted-foreground">(optional)</span>
-              </FieldLabel>
-              <Textarea
-                id="deployment-notes"
-                rows={2}
-                placeholder="Release details or deployment notes"
-                value={details.notes}
-                onChange={(event) =>
-                  setDetails((value) => ({ ...value, notes: event.target.value }))
-                }
-              />
-            </Field>
-          </FieldGroup>
-          {!projects.length && !editing && (
-            <Alert>
-              <AlertDescription className="flex flex-wrap items-center gap-2">
-                Add a project in Project Maintenance before recording a deployment.
-                <Button
-                  type="button"
-                  variant="link"
-                  className="h-auto p-0"
-                  onClick={onManageProjects}
-                >
-                  Add project <ArrowRight aria-hidden="true" />
-                </Button>
-              </AlertDescription>
-            </Alert>
-          )}
-          {error && <FieldError>{error}</FieldError>}
-          <div className="flex flex-wrap gap-2">
-            <Button type="submit" disabled={!projects.length && !editing}>
-              {editingId ? <Check aria-hidden="true" /> : <Plus aria-hidden="true" />}
-              {editingId ? "Save deployment" : "Add deployment"}
-            </Button>
-            <Button type="button" variant="outline" onClick={closeEditor}>
-              <X aria-hidden="true" />
-              Cancel
-            </Button>
-          </div>
-        </form>
+        {editor}
       </Panel>
       )}
       <Panel
